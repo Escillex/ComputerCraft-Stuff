@@ -28,6 +28,12 @@ function sim.addChest(x, y, z)
   return chests[key(x, y, z)]
 end
 
+-- Point another position at an existing inventory, the way every block of a
+-- multiblock store shares one set of contents.
+function sim.linkChest(x, y, z, chest)
+  chests[key(x, y, z)] = chest
+end
+
 function sim.violation(msg)
   violations[#violations + 1] = msg
 end
@@ -501,9 +507,37 @@ local function makeEnv(m)
       return true, { name = name, state = {}, tags = {} }
     end
 
-    local function chestInFront()
-      local x, y, z = ahead()
+    local function chestAt(where)
+      local x, y, z
+      if where == "down" then x, y, z = below()
+      elseif where == "up" then x, y, z = above()
+      else x, y, z = ahead() end
       return chests[key(x, y, z)]
+    end
+
+    local function dropInto(where)
+      local chest = chestAt(where)
+      local s = m.slots[m.selected]
+      if not chest or not s then return false end
+      for _, slot in ipairs(chest.slots) do
+        if slot.name == s.name and slot.count + s.count <= 64 then
+          slot.count = slot.count + s.count
+          m.slots[m.selected] = nil
+          return true
+        end
+      end
+      if #chest.slots >= (chest.size or 27) then return false end
+      chest.slots[#chest.slots + 1] = { name = s.name, count = s.count }
+      m.slots[m.selected] = nil
+      return true
+    end
+
+    local function suckFrom(where)
+      local chest = chestAt(where)
+      if not chest or #chest.slots == 0 then return false end
+      if m.slots[m.selected] then return false end
+      m.slots[m.selected] = table.remove(chest.slots, 1)
+      return true
     end
 
     env.turtle = {
@@ -563,30 +597,13 @@ local function makeEnv(m)
         return true
       end,
 
-      drop = function()
-        local chest = chestInFront()
-        local s = m.slots[m.selected]
-        if not chest or not s then return false end
-        for _, slot in ipairs(chest.slots) do
-          if slot.name == s.name and slot.count + s.count <= 64 then
-            slot.count = slot.count + s.count
-            m.slots[m.selected] = nil
-            return true
-          end
-        end
-        if #chest.slots >= (chest.size or 27) then return false end
-        chest.slots[#chest.slots + 1] = { name = s.name, count = s.count }
-        m.slots[m.selected] = nil
-        return true
-      end,
+      drop     = function() return dropInto("forward") end,
+      dropDown = function() return dropInto("down") end,
+      dropUp   = function() return dropInto("up") end,
 
-      suck = function()
-        local chest = chestInFront()
-        if not chest or #chest.slots == 0 then return false end
-        if m.slots[m.selected] then return false end
-        m.slots[m.selected] = table.remove(chest.slots, 1)
-        return true
-      end,
+      suck     = function() return suckFrom("forward") end,
+      suckDown = function() return suckFrom("down") end,
+      suckUp   = function() return suckFrom("up") end,
     }
   end
 

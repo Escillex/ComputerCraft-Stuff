@@ -64,6 +64,18 @@ local function saveLocal()
   common.saveState(STATE_FILE, { pos = pos, facing = facing, depot = depot })
 end
 
+-- An older build called the store's position `chest` and always approached
+-- it from the side. A note left on disk by one of those must not come back
+-- as a depot with no position on it, because the position is what keeps
+-- turtles from digging the thing up.
+local function normaliseDepot(d)
+  if type(d) ~= "table" then return nil end
+  d.store = d.store or d.chest
+  d.dir = d.dir or "forward"
+  if not d.store or not d.dock then return nil end
+  return d
+end
+
 -- Anything a person would want to do something about goes to the
 -- coordinator as well as this turtle's own screen - nobody is stood
 -- watching a turtle at the bottom of a hole. Repeats of the same
@@ -130,7 +142,7 @@ local function mayBreakAt(x, y, z)
   -- can be expected to recognise on sight - a modded store is just a block
   -- with an unfamiliar name - so go by where they are instead.
   if samePlace(coordPos, x, y, z) then return false end
-  if depot and samePlace(depot.chest, x, y, z) then return false end
+  if depot and samePlace(depot.store, x, y, z) then return false end
 
   return x >= box.minX and x <= box.maxX
      and z >= box.minZ and z <= box.maxZ
@@ -366,42 +378,82 @@ end
 -- Depot
 --------------------------------------------------------------------------
 
--- The coordinator sits next to the resupply chest but cannot tell which
--- side it is on, so the first turtle that needs the depot walks the four
--- horizontal neighbours, looking back at the coordinator from two blocks
--- out, and reports what it finds.
-local function probeDepot()
-  if not coordPos then return nil end
-  -- Fly over the coordinator rather than into it: it and its chest are both
-  -- blocks this turtle refuses to break, so a route at their own height
-  -- means standing around waiting for scenery to move.
-  local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
-  print("looking for the resupply chest next to the coordinator...")
-  for dir = 0, 3 do
-    local f = common.FACINGS[dir]
-    local standX, standZ = coordPos.x + f.dx * 2, coordPos.z + f.dz * 2
-    if goTo(standX, coordPos.y, standZ, travelY) then
-      local inward = (dir + 2) % 4
-      turnTo(inward)
-      local present, info = turtle.inspect()
-      if present and common.looksLikeDepot(info.name, depotTypes) then
-        return {
-          chest  = { x = coordPos.x + f.dx, y = coordPos.y, z = coordPos.z + f.dz },
-          dock   = { x = standX, y = coordPos.y, z = standZ },
-          facing = inward,
-        }
-      end
-    end
+local DROP = { forward = turtle.drop, down = turtle.dropDown, up = turtle.dropUp }
+local SUCK = { forward = turtle.suck, down = turtle.suckDown, up = turtle.suckUp }
+local LOOK = { forward = turtle.inspect, down = turtle.inspectDown, up = turtle.inspectUp }
+
+-- Settle on top of a column and see what is underneath. This is the way
+-- that copes with a store several blocks across and several tall - a Create
+-- item vault, say - where standing beside it and looking sideways means
+-- guessing which of its blocks is the one exposed, and where the spot two
+-- out from the coordinator is quite likely to be more of the store itself.
+-- Any block of a multiblock will take the items, so landing on the roof of
+-- it is enough.
+local function dockOnTopOf(x, z, ceiling)
+  if not goTo(x, ceiling, z, ceiling) then return nil end
+
+  for _ = 1, 16 do
+    if turtle.detectDown() then break end
+    if not moveDown() then break end
+  end
+
+  local present, info = turtle.inspectDown()
+  if present and common.looksLikeDepot(info.name, depotTypes) then
+    return {
+      store = { x = pos.x, y = pos.y - 1, z = pos.z },
+      dock  = { x = pos.x, y = pos.y, z = pos.z },
+      dir   = "down",
+    }
   end
   return nil
 end
 
-local function dumpInventory()
+-- The older way: stand two blocks out and look back at the coordinator.
+-- Still worth trying for a single chest tucked under a roof, where there is
+-- no way to come at it from above.
+local function dockBesideOf(coord, dir, travelY)
+  local f = common.FACINGS[dir]
+  local standX, standZ = coord.x + f.dx * 2, coord.z + f.dz * 2
+  if not goTo(standX, coord.y, standZ, travelY) then return nil end
+
+  local inward = (dir + 2) % 4
+  turnTo(inward)
+  local present, info = turtle.inspect()
+  if present and common.looksLikeDepot(info.name, depotTypes) then
+    return {
+      store  = { x = coord.x + f.dx, y = coord.y, z = coord.z + f.dz },
+      dock   = { x = standX, y = coord.y, z = standZ },
+      dir    = "forward",
+      facing = inward,
+    }
+  end
+  return nil
+end
+
+-- The coordinator knows a store is attached to it but not which side, so
+-- the first turtle that needs it goes and looks at each neighbour in turn.
+local function probeDepot()
+  if not coordPos then return nil end
+  local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
+  local ceiling = math.max(travelY, coordPos.y + 8)
+
+  print("looking for the resupply store next to the coordinator...")
+  for dir = 0, 3 do
+    local f = common.FACINGS[dir]
+    local found = dockOnTopOf(coordPos.x + f.dx, coordPos.z + f.dz, ceiling)
+      or dockBesideOf(coordPos, dir, travelY)
+    if found then return found end
+  end
+  return nil
+end
+
+local function dumpInventory(dir)
+  local drop = DROP[dir or "forward"]
   local blocked = false
   for slot = 1, 16 do
     if turtle.getItemCount(slot) > 0 then
       turtle.select(slot)
-      turtle.drop()
+      drop()
       if turtle.getItemCount(slot) > 0 then blocked = true end
     end
   end
@@ -409,17 +461,18 @@ local function dumpInventory()
   return not blocked
 end
 
--- Walk the chest looking for anything burnable. Non-fuel is held in the
+-- Walk the store looking for anything burnable. Non-fuel is held in the
 -- turtle's own slots while we look and handed straight back afterwards, so
 -- we never re-suck the same rubbish over and over.
-local function takeFuel(target)
+local function takeFuel(target, dir)
   if fuel() >= target then return true end
+  local suck, drop = SUCK[dir or "forward"], DROP[dir or "forward"]
   local held = {}
   for slot = 1, 16 do
     if fuel() >= target then break end
     if turtle.getItemCount(slot) == 0 then
       turtle.select(slot)
-      if not turtle.suck(64) then break end
+      if not suck(64) then break end
       if turtle.refuel(0) then
         turtle.refuel()
       else
@@ -429,7 +482,7 @@ local function takeFuel(target)
   end
   for _, slot in ipairs(held) do
     turtle.select(slot)
-    turtle.drop()
+    drop()
   end
   turtle.select(1)
   return fuel() >= target
@@ -463,21 +516,24 @@ local function claimDepot()
 end
 
 local function useDepot()
+  local dir = depot.dir or "forward"
   local travelY = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
+
   local ok, why = goTo(depot.dock.x, depot.dock.y, depot.dock.z, travelY)
   if not ok then return false, why end
-  turnTo(depot.facing)
+  if dir == "forward" then turnTo(depot.facing) end
 
-  if not dumpInventory() then
-    trouble("the resupply chest is FULL - empty it or I cannot keep mining")
+  if not dumpInventory(dir) then
+    trouble("the resupply store is FULL - empty it or I cannot keep mining")
   end
-  if not takeFuel(tripCost(depot.dock) + FUEL_MARGIN * 4) then
-    trouble("no fuel left in the resupply chest - put coal in it")
+  if not takeFuel(tripCost(depot.dock) + FUEL_MARGIN * 4, dir) then
+    trouble("no fuel left in the resupply store - put coal in it")
   end
 
-  -- Climb off the dock before handing the chest on, so the next turtle in
-  -- the queue is not walking into this one.
-  return goToY(travelY)
+  -- Get off the dock before handing the store on, so the next turtle in the
+  -- queue is not walking into this one. Always upwards: when the dock is the
+  -- roof of the store, down is the store itself.
+  return goToY(math.max(travelY, depot.dock.y + 1))
 end
 
 -- Everything that happens at the chest, including the hunt for it, runs
@@ -490,7 +546,7 @@ local function depotRun()
 
   depotTypes = grant.depotTypes or depotTypes
   if not depot and grant.depot then
-    depot = grant.depot
+    depot = normaliseDepot(grant.depot)
     saveLocal()
   end
 
@@ -499,7 +555,7 @@ local function depotRun()
     state = "finding depot"
     depot = probeDepot()
     if depot then
-      print("depot found at " .. common.formatPos(depot.chest))
+      print("resupply store found at " .. common.formatPos(depot.store))
       tell({ type = common.DEPOT_FOUND, depot = depot })
       saveLocal()
     end
@@ -509,7 +565,7 @@ local function depotRun()
     state = "resupplying"
     ok, why = useDepot()
   else
-    ok, why = false, "no chest next to the coordinator"
+    ok, why = false, "no container next to the coordinator"
   end
 
   tell({ type = common.DEPOT_RELEASE })
@@ -589,7 +645,7 @@ local function workerLoop()
     if needsDepot() then
       local ok, why = depotRun()
       if not ok then
-        trouble("could not reach the chest: " .. tostring(why))
+        trouble("could not reach the resupply store: " .. tostring(why))
         sleep(5)
       end
     end
@@ -681,7 +737,7 @@ local function cmdStatus()
   local p = gpsPos(2)
   print("position: " .. common.formatPos(p))
   if saved and saved.depot then
-    print("depot: " .. common.formatPos(saved.depot.chest))
+    print("depot: " .. common.formatPos(saved.depot.store))
   else
     print("depot: not found yet")
   end
@@ -700,7 +756,7 @@ local function cmdWork()
   if not ok then error(why, 0) end
 
   local saved = common.loadState(STATE_FILE)
-  if saved and saved.depot then depot = saved.depot end
+  if saved and saved.depot then depot = normaliseDepot(saved.depot) end
 
   local welcome = ask({ type = common.HELLO, pos = pos, version = common.VERSION }, 10)
   if not welcome then error("the coordinator did not answer my hello", 0) end
@@ -711,7 +767,7 @@ local function cmdWork()
   end
 
   box = welcome.box
-  depot = welcome.depot or depot
+  depot = normaliseDepot(welcome.depot) or depot
   coordPos = welcome.coordPos
   depotTypes = welcome.depotTypes or depotTypes
   if not box then

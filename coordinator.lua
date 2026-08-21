@@ -309,7 +309,7 @@ local function handle(id, msg)
     if not depot and msg.depot then
       depot = msg.depot
       save()
-      print("resupply chest found at " .. common.formatPos(depot.chest))
+      print("resupply store found at " .. common.formatPos(depot.store))
     end
   end
 end
@@ -403,7 +403,7 @@ end
 
 local function cmdStatus()
   print("coordinator " .. os.getComputerID() .. " at " .. common.formatPos(myPos))
-  print("depot: " .. (depot and common.formatPos(depot.chest) or "not found yet"))
+  print("depot: " .. (depot and common.formatPos(depot.store) or "not found yet"))
   if not box then
     print("area: not marked - run 'flatten mark1' and 'flatten mark2' on a turtle")
     return

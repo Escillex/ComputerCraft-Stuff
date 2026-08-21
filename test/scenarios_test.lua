@@ -209,7 +209,7 @@ do
 
   check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
   -- It only counts as going round if it actually got to the chest.
-  check(table.concat(coord.log, "\n"):find("resupply chest found at", 1, true) ~= nil,
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
     "it found its way over to the chest")
   check(broken == 0, ("the wall was left standing (%d of %d blocks broken)")
     :format(broken, #wall))
@@ -255,7 +255,7 @@ do
   local log = table.concat(coord.log, "\n")
   check(log:find(VAULT, 1, true) ~= nil,
     "the coordinator named the block it found attached")
-  check(log:find("resupply chest found at", 1, true) ~= nil,
+  check(log:find("resupply store found at", 1, true) ~= nil,
     "the turtle recognised the vault as the place to resupply")
   check(sim.getBlock(coordPos.x + 1, coordPos.y, coordPos.z) == VAULT,
     "and did not break it")
@@ -268,9 +268,77 @@ do
   check(cleared(sim, box) == 0, "and cleared the area")
 
   for _, line in ipairs(coord.log) do
-    if line:find("resupply store") or line:find("chest found") then
+    if line:find("resupply store") then
       print("        " .. line)
     end
+  end
+end
+
+--------------------------------------------------------------------------
+print("\n=== a Create item vault, which is a multiblock ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- A 2x2x2 vault butted up against the coordinator. Every block of it is
+  -- part of one structure: breaking any one takes the whole thing apart,
+  -- and the block two out from the coordinator - where the old probe used
+  -- to stand - is more vault rather than somewhere to stand.
+  local VAULT = "create:item_vault"
+  local vaultBlocks = {}
+  for dx = 1, 2 do
+    for dy = 0, 1 do
+      for dz = 0, 1 do
+        local p = { x = coordPos.x + dx, y = coordPos.y + dy, z = coordPos.z + dz }
+        sim.setBlock(p.x, p.y, p.z, VAULT)
+        vaultBlocks[#vaultBlocks + 1] = p
+      end
+    end
+  end
+  -- The whole multiblock is one inventory, so every block feeds the chest
+  -- the scenario is tracking.
+  for _, p in ipairs(vaultBlocks) do sim.linkChest(p.x, p.y, p.z, chest) end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end }, storeType = VAULT })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local loaded = { [1] = { name = "minecraft:coal", count = 8 } }
+  for slot = 2, 16 do
+    loaded[slot] = { name = "minecraft:rubble_" .. slot, count = 64 }
+  end
+  local w = sim.addMachine({ id = 90, name = "vaulted", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY + 1, z = box.minZ }, facing = 1,
+    slots = loaded, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("resupply store found at", 1, true) ~= nil,
+    "the turtle found the vault despite it being several blocks across")
+
+  local brokenVault = 0
+  for _, p in ipairs(vaultBlocks) do
+    if sim.getBlock(p.x, p.y, p.z) ~= VAULT then brokenVault = brokenVault + 1 end
+  end
+  check(brokenVault == 0,
+    ("every block of the multiblock is intact (%d of %d broken)")
+      :format(brokenVault, #vaultBlocks))
+
+  local delivered = 0
+  for _, slot in ipairs(chest.slots) do
+    if slot.name ~= "minecraft:coal" then delivered = delivered + slot.count end
+  end
+  check(delivered > 0, ("it emptied itself into the vault (%d items)"):format(delivered))
+  check(cleared(sim, box) == 0, "and cleared the area")
+
+  for _, line in ipairs(coord.log) do
+    if line:find("resupply store") then print("        " .. line) end
   end
 end
 
@@ -335,17 +403,12 @@ do
   local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
   local coordPos = buildWorld(sim, box)
 
-  -- Seal the coordinator in on all four sides. There is now no way to the
-  -- chest that does not involve breaking something, so the turtle should
-  -- give up on it and say so where a person will actually see it.
-  for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
-    for y = box.minY, box.maxY + 12 do
-      sim.setBlock(coordPos.x + d[1] * 2, y, coordPos.z + d[2] * 2, "minecraft:obsidian")
-    end
-  end
+  -- Take the container away entirely: the coordinator has nothing attached
+  -- and there is nothing for a turtle to find, so it should give up on
+  -- resupplying and say so where a person will actually see it.
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
 
-  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
-    adjacentChest = { list = function() return {} end } })
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {} })
   sim.boot(coord, "coordinator", {})
   sim.run(5)
   markCorners(sim, box)
@@ -363,7 +426,7 @@ do
   local log = table.concat(coord.log, "\n")
   check(log:find("turtle 60:", 1, true) ~= nil,
     "the coordinator printed the turtle's complaint")
-  check(log:find("chest", 1, true) ~= nil, "it said what the problem was")
+  check(log:find("store", 1, true) ~= nil, "it said what the problem was")
   check(log:find("it is at x=", 1, true) ~= nil, "it said where the turtle was")
 
   for _, line in ipairs(coord.log) do

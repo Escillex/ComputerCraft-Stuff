@@ -28,8 +28,8 @@ update all
 
 ## Running a job
 
-1. Put the coordinator computer down next to the chest and run
-   `coordinator`. It finds the chest by itself.
+1. Put the coordinator computer down next to the container and run
+   `coordinator`. It finds the container by itself and prints what it is.
 2. Walk a turtle to one corner of the volume you want gone and run
    `flatten mark1`. Walk it to the **opposite corner, including height** -
    top corner at one end, bottom corner at the other - and run
@@ -58,7 +58,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22d (turtle 7)
+flatten 2026-08-22e (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -107,7 +107,17 @@ Turtles find the container by walking round the coordinator and looking at
 what is next to it. They know what to look for because the coordinator
 tells them the block id of whatever is actually attached, so modded storage
 works without this having heard of it - and never gets broken, wherever it
-is standing. If the coordinator says
+is standing.
+
+They settle on **top** of the container and drop items down into it, which
+is what makes a multiblock store work: a Create item vault is several
+blocks across and several tall, so there is no single "the block next to
+the coordinator" to stand beside, and any block of it will take the items
+anyway. Every block of such a store is protected, not just the one touching
+the computer - breaking one would take the whole structure apart. A single
+chest under a low roof is still approached from the side instead.
+
+If the coordinator says
 
 ```
 !! nothing next to me accepts items

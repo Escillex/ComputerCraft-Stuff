@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22d"
+common.VERSION = "2026-08-22e"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -81,6 +81,10 @@ end
 local PROTECTED = {
   "computercraft:",
   "chest", "barrel", "shulker", "hopper", "furnace", "dispenser", "dropper",
+  -- Common names for modded storage. A multiblock store is the worst thing
+  -- to get wrong: breaking any one of its blocks takes the whole structure
+  -- apart, so err towards leaving unfamiliar containers alone.
+  "vault", "crate", "drawer", "safe", "locker",
 }
 
 -- Another turtle is worth waiting for, because it will move on. A chest or
@@ -100,7 +104,7 @@ end
 
 -- Only a fallback, for when the coordinator could not tell us what its own
 -- inventory is. Guessing from the name only ever works for vanilla.
-local DEPOT_BLOCKS = { "chest", "barrel", "shulker" }
+local DEPOT_BLOCKS = { "chest", "barrel", "shulker", "vault", "crate", "drawer" }
 
 -- `known` is the block id the coordinator actually found attached to
 -- itself, which is the reliable answer: it covers any modded storage
