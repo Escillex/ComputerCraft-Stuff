@@ -1,369 +1,491 @@
 -- coordinator.lua
--- Runs on a stationary computer + modem near the shared chest. Splits one
--- box into regions, hands them to turtles running `flatten fleet`, and
--- arbitrates the shared chest.
+-- Runs on a computer standing next to the resupply chest. Owns the area,
+-- hands out one column of work at a time, and keeps track of where every
+-- turtle in the fleet is.
 --
--- coordinator <x1> <y1> <z1> <x2> <y2> <z2> <turtleCount> <chestX> <chestY> <chestZ> <chestDir>
--- coordinator   (prompts instead)
---
--- chestX/Y/Z is the resupply park spot; chestDir is a compass direction
--- (north/south/east/west/up/down) since there's no turtle facing here to
--- be relative to - each turtle converts it with its own GPS facing.
+-- Corners are marked from a turtle ('flatten mark1' / 'flatten mark2').
+-- Everything else happens here: start, stop, list, locate.
 
-local PROTOCOL = "flatten_fleet"
+local function loadModule(name)
+  local dir = fs.getDir(shell.getRunningProgram())
+  local path = fs.combine(dir, name .. ".lua")
+  if not fs.exists(path) then
+    error(name .. ".lua is missing - run 'update all' first", 0)
+  end
+  local file = fs.open(path, "r")
+  local source = file.readAll()
+  file.close()
+  local chunk, err = load(source, "@" .. path, "t", _ENV)
+  if not chunk then error(err, 0) end
+  return chunk()
+end
 
-----------------------------------------------------------------------
--- Input
-----------------------------------------------------------------------
+local common = loadModule("common")
 
-local function readCoordTriple(promptText)
-  while true do
-    io.write(promptText .. " (x y z): ")
-    local input = read()
-    if input then
-      local x, y, z = input:match("^%s*(%-?%d+)%s+(%-?%d+)%s+(%-?%d+)%s*$")
-      if x then return tonumber(x), tonumber(y), tonumber(z) end
+local STATE_FILE = "coordinator.state"
+
+local corners = {}      -- [1] and [2], as marked by a turtle
+local box               -- min/max on each axis, once both corners are in
+local cells, order      -- keyed by "x,z", plus a stable list for scanning
+local turtles = {}      -- id -> { pos, state, lastSeen, cell, fuel }
+local depot             -- chest/dock positions, once a turtle has found it
+local depotHolder       -- only one turtle uses the chest at a time
+local depotSince
+local running = false
+local myPos
+
+--------------------------------------------------------------------------
+-- The area
+--------------------------------------------------------------------------
+
+local function buildCells()
+  cells, order = {}, {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      local cell = { x = x, z = z, state = "free", attempts = 0 }
+      cells[common.cellKey(x, z)] = cell
+      order[#order + 1] = cell
     end
-    print("Enter three whole numbers separated by spaces, e.g. '366 63 -577'.")
   end
 end
 
-local COMPASS_WORDS = {
-  north = true, n = true, south = true, s = true,
-  east = true, e = true, west = true, w = true, up = true, u = true, down = true, d = true,
-}
+local function buildBox()
+  local a, b = corners[1], corners[2]
+  box = {
+    minX = math.min(a.x, b.x), maxX = math.max(a.x, b.x),
+    minY = math.min(a.y, b.y), maxY = math.max(a.y, b.y),
+    minZ = math.min(a.z, b.z), maxZ = math.max(a.z, b.z),
+  }
+  buildCells()
+end
 
-local function readDirection(promptText)
-  while true do
-    io.write(promptText .. " (north/south/east/west/up/down): ")
-    local input = read()
-    if input and COMPASS_WORDS[input:lower()] then return input:lower() end
-    print("Please enter one of: north, south, east, west, up, down.")
+local function boxSize()
+  if not box then return nil end
+  return box.maxX - box.minX + 1, box.maxY - box.minY + 1, box.maxZ - box.minZ + 1
+end
+
+local function tally()
+  local counts = { free = 0, claimed = 0, done = 0, skipped = 0 }
+  if not order then return counts end
+  for _, cell in ipairs(order) do
+    counts[cell.state] = (counts[cell.state] or 0) + 1
   end
+  return counts
 end
 
-local function readCount(promptText)
-  while true do
-    io.write(promptText .. ": ")
-    local n = tonumber(read())
-    if n and n >= 1 then return math.floor(n + 0.5) end
-    print("Please enter a whole number of at least 1.")
-  end
+--------------------------------------------------------------------------
+-- Persistence
+--------------------------------------------------------------------------
+
+local function save()
+  common.saveState(STATE_FILE, {
+    corners = corners, box = box, depot = depot, running = running,
+    cells = cells,
+  })
 end
 
-local function printHelp()
-  print("Commands:")
-  print("  list              - show region assignments and chest queue status")
-  print("  free <region#>    - release a region so the next new registrant gets it")
-  print("  ping              - ask every connected turtle for a LIVE gps.locate() position")
-  print("  reset <turtleId>|all - ping turtle(s) AND correct their tracked position to match")
-  print("  help              - show this again")
-end
-
-local args = { ... }
-
-if args[1] and (tostring(args[1]):lower() == "help" or tostring(args[1]):lower() == "--help") then
-  print("Usage: coordinator <x1> <y1> <z1> <x2> <y2> <z2> <turtleCount> <chestX> <chestY> <chestZ> <chestDir>")
-  print("  or: coordinator            (prompts for the same)")
-  print()
-  print("x1/y1/z1 and x2/y2/z2 are the two corners of the job box, as real F3 coordinates.")
-  print("turtleCount is how many turtles will split the job.")
-  print("chestX/Y/Z is the resupply park spot's coordinates; chestDir is a compass direction")
-  print("(north/south/east/west/up/down, or n/s/e/w/u/d) for which way the chest is from there.")
-  print()
-  print("Once running, these admin commands are available at its own prompt:")
-  printHelp()
-  return
-end
-
-local x1, y1, z1, x2, y2, z2, turtleCount, chestX, chestY, chestZ, chestDir
-
-if #args >= 11 then
-  x1, y1, z1 = tonumber(args[1]), tonumber(args[2]), tonumber(args[3])
-  x2, y2, z2 = tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
-  turtleCount = tonumber(args[7])
-  chestX, chestY, chestZ = tonumber(args[8]), tonumber(args[9]), tonumber(args[10])
-  chestDir = tostring(args[11]):lower()
-  if not (x1 and y1 and z1 and x2 and y2 and z2 and turtleCount and chestX and chestY and chestZ
-      and COMPASS_WORDS[chestDir]) then
-    error("Usage: coordinator <x1> <y1> <z1> <x2> <y2> <z2> <turtleCount> <chestX> <chestY> <chestZ> <chestDir>\n" ..
-      "chestDir must be a compass direction: north/south/east/west/up/down (or n/s/e/w/u/d).")
-  end
-  turtleCount = math.floor(turtleCount + 0.5)
-else
-  print("Job box - enter the two corner positions as real (F3) coordinates.")
-  x1, y1, z1 = readCoordTriple("Corner 1")
-  x2, y2, z2 = readCoordTriple("Corner 2")
-  turtleCount = readCount("How many turtles will work this job")
-  print("Shared resupply chest - park spot coordinates and which direction the chest is from there.")
-  chestX, chestY, chestZ = readCoordTriple("Park spot")
-  chestDir = readDirection("Chest direction")
-end
-
-----------------------------------------------------------------------
--- Region division: split the longer axis into turtleCount strips
-----------------------------------------------------------------------
-
-local minX, maxX = math.min(x1, x2), math.max(x1, x2)
-local minY, maxY = math.min(y1, y2), math.max(y1, y2)
-local minZ, maxZ = math.min(z1, z2), math.max(z1, z2)
-
-local function divideRegions(n)
-  local width, depth = maxX - minX + 1, maxZ - minZ + 1
-  local regions = {}
-  if width >= depth then
-    local base, extra = math.floor(width / n), width % n
-    local x = minX
-    for i = 1, n do
-      local w = base + (i <= extra and 1 or 0)
-      if w > 0 then
-        regions[#regions + 1] = { x1 = x, y1 = minY, z1 = minZ, x2 = x + w - 1, y2 = maxY, z2 = maxZ }
-        x = x + w
+local function restore()
+  local saved = common.loadState(STATE_FILE)
+  if not saved then return end
+  corners = saved.corners or {}
+  box = saved.box
+  depot = saved.depot
+  running = saved.running or false
+  if box then
+    buildCells()
+    -- Put back what was already finished, but hand any cell that was
+    -- claimed when we went down back to the pool.
+    for key, cell in pairs(saved.cells or {}) do
+      local live = cells[key]
+      if live then
+        live.attempts = cell.attempts or 0
+        live.state = (cell.state == "claimed") and "free" or cell.state
       end
     end
+  end
+end
+
+--------------------------------------------------------------------------
+-- Handing out work
+--------------------------------------------------------------------------
+
+-- Refuse to put two turtles in neighbouring columns. Keeping a cell of
+-- clear air between them is what stops them from bumping into each other
+-- in the first place, rather than having to untangle it afterwards.
+local function tooClose(cell, exceptId)
+  for id, turtle_ in pairs(turtles) do
+    if id ~= exceptId and turtle_.cell and turtle_.state ~= "missing" then
+      local dx = math.abs(turtle_.cell.x - cell.x)
+      local dz = math.abs(turtle_.cell.z - cell.z)
+      if math.max(dx, dz) < common.CELL_SPACING then return true end
+    end
+  end
+  return false
+end
+
+-- Give out the nearest workable cell, which keeps each turtle in its own
+-- corner of the area instead of all of them chasing the same scan order.
+local function grantCell(id, from)
+  local best, bestDistance
+  for _, cell in ipairs(order) do
+    if cell.state == "free" and not tooClose(cell, id) then
+      local distance = 0
+      if from then
+        distance = math.abs(cell.x - from.x) + math.abs(cell.z - from.z)
+      end
+      if not best or distance < bestDistance then
+        best, bestDistance = cell, distance
+      end
+    end
+  end
+  if best then
+    best.state = "claimed"
+    best.owner = id
+  end
+  return best
+end
+
+-- `transient` means the turtle only bumped into another turtle on its way
+-- there. That is traffic, not an obstacle, so the column goes straight back
+-- in the pool instead of counting against its three strikes.
+local function releaseCell(id, cellRef, outcome, transient)
+  if not cellRef or not cells then return end
+  local cell = cells[common.cellKey(cellRef.x, cellRef.z)]
+  if not cell or cell.owner ~= id then return end
+
+  cell.owner = nil
+  if outcome == "done" then
+    cell.state = "done"
+  elseif transient then
+    cell.retries = (cell.retries or 0) + 1
+    cell.state = (cell.retries >= common.MAX_CELL_RETRIES) and "skipped" or "free"
   else
-    local base, extra = math.floor(depth / n), depth % n
-    local z = minZ
-    for i = 1, n do
-      local d = base + (i <= extra and 1 or 0)
-      if d > 0 then
-        regions[#regions + 1] = { x1 = minX, y1 = minY, z1 = z, x2 = maxX, y2 = maxY, z2 = z + d - 1 }
-        z = z + d
+    cell.attempts = cell.attempts + 1
+    cell.state = (cell.attempts >= common.MAX_CELL_ATTEMPTS) and "skipped" or "free"
+  end
+end
+
+--------------------------------------------------------------------------
+-- Messages
+--------------------------------------------------------------------------
+
+local function seen(id, msg)
+  local entry = turtles[id]
+  if not entry then
+    entry = { id = id }
+    turtles[id] = entry
+  end
+  entry.lastSeen = os.clock()
+  if msg.pos then entry.pos = msg.pos end
+  if msg.state then entry.state = msg.state end
+  if msg.fuel then entry.fuel = msg.fuel end
+  return entry
+end
+
+local function reply(id, msg, nonce)
+  msg.nonce = nonce
+  rednet.send(id, msg, common.PROTOCOL)
+end
+
+local function handle(id, msg)
+  if type(msg) ~= "table" or not msg.type then return end
+  local entry = seen(id, msg)
+
+  if msg.type == common.HEARTBEAT then
+    entry.cell = msg.cell
+    return
+  end
+
+  if msg.type == common.HELLO then
+    entry.state = "idle"
+    entry.cell = nil
+    print(("turtle %d joined at %s"):format(id, common.formatPos(msg.pos)))
+    reply(id, {
+      type = common.WELCOME, version = common.VERSION,
+      box = box, depot = depot, coordPos = myPos, running = running,
+    }, msg.nonce)
+
+  elseif msg.type == common.MARK then
+    if msg.which ~= 1 and msg.which ~= 2 then
+      reply(id, { type = common.NACK, message = "corner must be 1 or 2" }, msg.nonce)
+      return
+    end
+    corners[msg.which] = msg.pos
+    local note
+    if corners[1] and corners[2] then
+      buildBox()
+      running = false
+      local w, h, d = boxSize()
+      note = ("area is %d x %d x %d (%d columns) - run 'start' when the turtles are ready")
+        :format(w, h, d, w * d)
+    else
+      note = "now mark the opposite corner with 'flatten mark2'"
+    end
+    save()
+    print(("corner %d marked at %s"):format(msg.which, common.formatPos(msg.pos)))
+    print(note)
+    reply(id, { type = common.ACK, message = note }, msg.nonce)
+
+  elseif msg.type == common.WANT_CELL then
+    if not box then
+      reply(id, { type = common.NACK, message = "no area marked" }, msg.nonce)
+      return
+    end
+    -- Finished is checked before stopped, so the turtles still working when
+    -- the last column lands are told to knock off rather than being left
+    -- asking for work that will never come.
+    local counts = tally()
+    if counts.free == 0 and counts.claimed == 0 then
+      if running then
+        running = false
+        save()
+        print("job finished - every column is cleared")
       end
+      reply(id, { type = common.JOB_DONE }, msg.nonce)
+      return
+    end
+
+    if not running then
+      reply(id, { type = common.NO_CELL }, msg.nonce)
+      return
+    end
+
+    local cell = grantCell(id, msg.pos)
+    if cell then
+      entry.cell = { x = cell.x, z = cell.z }
+      entry.state = "mining"
+      reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z } }, msg.nonce)
+      save()
+    else
+      -- Everything left is either taken or too near another turtle.
+      reply(id, { type = common.NO_CELL }, msg.nonce)
+    end
+
+  elseif msg.type == common.CELL_DONE then
+    releaseCell(id, msg.cell, "done")
+    entry.cell = nil
+    entry.state = "idle"
+    save()
+
+  elseif msg.type == common.CELL_SKIP then
+    releaseCell(id, msg.cell, "skip", msg.transient)
+    entry.cell = nil
+    entry.state = "idle"
+    if not msg.transient then
+      print(("turtle %d skipped %d,%d: %s")
+        :format(id, msg.cell.x, msg.cell.z, tostring(msg.reason)))
+    end
+    save()
+
+  elseif msg.type == common.WANT_DEPOT then
+    local holder = depotHolder and turtles[depotHolder]
+    local stale = depotHolder and (
+      os.clock() - (depotSince or 0) > common.DEPOT_TIMEOUT
+      or not holder or holder.state == "missing")
+
+    if depotHolder and depotHolder ~= id and not stale then
+      reply(id, { type = common.DEPOT_WAIT }, msg.nonce)
+    else
+      depotHolder, depotSince = id, os.clock()
+      -- Pass on where the chest is, so a turtle that started before it was
+      -- found does not go hunting for it all over again.
+      reply(id, { type = common.DEPOT_GRANT, depot = depot }, msg.nonce)
+    end
+
+  elseif msg.type == common.DEPOT_RELEASE then
+    if depotHolder == id then depotHolder, depotSince = nil, nil end
+
+  elseif msg.type == common.DEPOT_FOUND then
+    if not depot and msg.depot then
+      depot = msg.depot
+      save()
+      print("resupply chest found at " .. common.formatPos(depot.chest))
     end
   end
-  return regions
 end
-
-local regions = divideRegions(turtleCount)
-local nextRegion = 1
-
-print(("Box: x %d..%d, y %d..%d, z %d..%d"):format(minX, maxX, minY, maxY, minZ, maxZ))
-print(("Split into %d region(s) for up to %d turtle(s):"):format(#regions, turtleCount))
-for i, r in ipairs(regions) do
-  print(("  %d: x %d..%d, y %d..%d, z %d..%d"):format(i, r.x1, r.x2, r.y1, r.y2, r.z1, r.z2))
-end
-if #regions < turtleCount then
-  print(("Note: box too narrow for %d regions - only the first %d registrant(s) get work."):format(
-    turtleCount, #regions))
-end
-
-----------------------------------------------------------------------
--- Networking
-----------------------------------------------------------------------
-
-local modemSide = nil
-for _, side in ipairs(peripheral.getNames()) do
-  if peripheral.getType(side) == "modem" then
-    modemSide = side
-    break
-  end
-end
-if not modemSide then
-  error("No modem attached to this computer - the coordinator needs a wireless/ender modem.")
-end
-rednet.open(modemSide)
-rednet.host(PROTOCOL, "coordinator")
-print(("Hosting on protocol '%s' via modem '%s'."):format(PROTOCOL, modemSide))
-
-----------------------------------------------------------------------
--- Chest queue - one holder at a time
-----------------------------------------------------------------------
-
-local chestHolder = nil
-local chestQueue = {}
-
-local function grantNext()
-  if chestHolder == nil and #chestQueue > 0 then
-    chestHolder = table.remove(chestQueue, 1)
-    rednet.send(chestHolder, { type = "chest_granted" }, PROTOCOL)
-    print(("chest: granted to turtle %d"):format(chestHolder))
-  end
-end
-
-----------------------------------------------------------------------
--- Main loop
-----------------------------------------------------------------------
-
-local assignedTo = {} -- turtle id -> region index
-local lastPos = {} -- turtle id -> { x, y, z, cell, total, seenAt }
 
 local function rednetLoop()
   while true do
-    local senderId, message = rednet.receive(PROTOCOL)
-    if type(message) == "table" then
-      if message.type == "pos" then
-        lastPos[senderId] = {
-          x = message.x, y = message.y, z = message.z,
-          cell = message.cell, total = message.total, seenAt = os.epoch("utc"),
-        }
-      elseif message.type == "blocked" then
-        print(("turtle %d: blocked by another turtle near (%d,%d,%d), skipped that cell"):format(
-          senderId, message.x, message.y, message.z))
-      elseif message.type == "register" then
-        local regionIndex = assignedTo[senderId]
-        if not regionIndex and nextRegion <= #regions then
-          regionIndex = nextRegion
-          assignedTo[senderId] = regionIndex
-          nextRegion = nextRegion + 1
+    local id, msg = rednet.receive(common.PROTOCOL)
+    local ok, err = pcall(handle, id, msg)
+    if not ok then print("error handling a message: " .. tostring(err)) end
+  end
+end
+
+--------------------------------------------------------------------------
+-- Watching for turtles that go quiet
+--------------------------------------------------------------------------
+
+local function sweepLoop()
+  while true do
+    sleep(5)
+    local now = os.clock()
+    for id, entry in pairs(turtles) do
+      if entry.state ~= "missing" and now - (entry.lastSeen or 0) > common.MISSING_AFTER then
+        entry.state = "missing"
+        print(("turtle %d has gone quiet - last seen at %s")
+          :format(id, common.formatPos(entry.pos)))
+        -- Its column goes back in the pool, but its last known position
+        -- stays on the books so 'locate' can still point you at it.
+        if entry.cell then
+          releaseCell(id, entry.cell, "skip", true)
+          entry.cell = nil
         end
-        if regionIndex then
-          local r = regions[regionIndex]
-          rednet.send(senderId, {
-            type = "assigned",
-            region = { x1 = r.x1, y1 = r.y1, z1 = r.z1, x2 = r.x2, y2 = r.y2, z2 = r.z2 },
-            chest = { x = chestX, y = chestY, z = chestZ, dir = chestDir },
-          }, PROTOCOL)
-          print(("turtle %d: assigned region %d (x %d..%d, z %d..%d)"):format(
-            senderId, regionIndex, r.x1, r.x2, r.z1, r.z2))
-        else
-          rednet.send(senderId, { type = "no_region" }, PROTOCOL)
-          print(("turtle %d: no region left to assign"):format(senderId))
-        end
-      elseif message.type == "chest_request" then
-        if chestHolder == senderId then
-          rednet.send(senderId, { type = "chest_granted" }, PROTOCOL)
-        elseif chestHolder == nil then
-          chestHolder = senderId
-          rednet.send(senderId, { type = "chest_granted" }, PROTOCOL)
-          print(("chest: granted to turtle %d"):format(senderId))
-        else
-          local alreadyQueued = false
-          for _, id in ipairs(chestQueue) do
-            if id == senderId then alreadyQueued = true break end
-          end
-          if not alreadyQueued then
-            chestQueue[#chestQueue + 1] = senderId
-            print(("chest: turtle %d queued (%d waiting)"):format(senderId, #chestQueue))
-          end
-        end
-      elseif message.type == "chest_release" then
-        if chestHolder == senderId then
-          chestHolder = nil
-          print(("chest: released by turtle %d"):format(senderId))
-          grantNext()
-        end
+        if depotHolder == id then depotHolder, depotSince = nil, nil end
+        save()
       end
     end
   end
+end
+
+--------------------------------------------------------------------------
+-- Console
+--------------------------------------------------------------------------
+
+local function ago(t)
+  if not t then return "never" end
+  return ("%ds ago"):format(math.floor(os.clock() - t))
+end
+
+local function cmdList()
+  local ids = {}
+  for id in pairs(turtles) do ids[#ids + 1] = id end
+  table.sort(ids)
+
+  if #ids == 0 then
+    print("no turtles have joined yet")
+    return
+  end
+
+  print(("%-5s %-10s %-24s %-10s %s"):format("id", "state", "position", "seen", "fuel"))
+  for _, id in ipairs(ids) do
+    local entry = turtles[id]
+    print(("%-5d %-10s %-24s %-10s %s"):format(
+      id, entry.state or "?", common.formatPos(entry.pos),
+      ago(entry.lastSeen), tostring(entry.fuel or "?")))
+  end
+end
+
+local function cmdLocate(arg)
+  local id = tonumber(arg)
+  if not id then print("usage: locate <turtle id>") return end
+  local entry = turtles[id]
+  if not entry then print("turtle " .. id .. " has never joined") return end
+
+  print(("turtle %d"):format(id))
+  print("  state:    " .. (entry.state or "?"))
+  print("  position: " .. common.formatPos(entry.pos))
+  print("  seen:     " .. ago(entry.lastSeen))
+  print("  fuel:     " .. tostring(entry.fuel or "?"))
+  if entry.cell then
+    print(("  cell:     %d,%d"):format(entry.cell.x, entry.cell.z))
+  end
+  if entry.state == "missing" then
+    print("  (gone quiet - the position above is where it was last heard from)")
+  end
+end
+
+local function cmdStatus()
+  print("coordinator " .. os.getComputerID() .. " at " .. common.formatPos(myPos))
+  print("depot: " .. (depot and common.formatPos(depot.chest) or "not found yet"))
+  if not box then
+    print("area: not marked - run 'flatten mark1' and 'flatten mark2' on a turtle")
+    return
+  end
+  local w, h, d = boxSize()
+  print(("area: %d x %d x %d, corners %s .. %s"):format(w, h, d,
+    common.formatPos({ x = box.minX, y = box.minY, z = box.minZ }),
+    common.formatPos({ x = box.maxX, y = box.maxY, z = box.maxZ })))
+  local counts = tally()
+  print(("columns: %d done, %d being cleared, %d to go, %d written off")
+    :format(counts.done, counts.claimed, counts.free, counts.skipped))
+  print("job is " .. (running and "running" or "stopped"))
+end
+
+local function cmdStart()
+  if not box then
+    print("mark the area first: 'flatten mark1' and 'flatten mark2' on a turtle")
+    return
+  end
+  if not depot then
+    print("note: no resupply chest found yet - the first turtle will look for one")
+  end
+  running = true
+  save()
+  print("started - turtles will pick up work on their next request")
+end
+
+local function cmdClear()
+  corners, box, cells, order, depot = {}, nil, nil, nil, nil
+  running = false
+  save()
+  print("area cleared - mark two new corners to set up another job")
+end
+
+local function cmdHelp()
+  print("start          begin handing out work")
+  print("stop           stop handing out work")
+  print("list           every turtle: state, position, last seen")
+  print("locate <id>    where one turtle is, even if it has gone quiet")
+  print("status         area, progress and depot")
+  print("clear          forget the area and start over")
+  print("exit           quit the coordinator")
+  print("")
+  print("corners are marked from a turtle: 'flatten mark1', 'flatten mark2'")
 end
 
 local function commandLoop()
-  printHelp()
+  cmdHelp()
   while true do
-    io.write("> ")
-    local input = read()
-    local cmd, rest = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
-    cmd = (cmd or ""):lower()
-    if cmd == "list" then
-      local any = false
-      for id, idx in pairs(assignedTo) do
-        any = true
-        local r = regions[idx]
-        local p = lastPos[id]
-        local posStr
-        if p then
-          local secondsAgo = math.floor((os.epoch("utc") - p.seenAt) / 1000)
-          posStr = (", last at (%d,%d,%d), cell %d/%d, seen %ds ago"):format(
-            p.x, p.y, p.z, p.cell, p.total, secondsAgo)
-        else
-          posStr = ", no position report yet"
-        end
-        print(("  turtle %d -> region %d (x %d..%d, z %d..%d)%s"):format(
-          id, idx, r.x1, r.x2, r.z1, r.z2, posStr))
-      end
-      if not any then print("  (no turtles registered yet)") end
-      print(("  chest: %s%s"):format(
-        chestHolder and ("held by turtle " .. chestHolder) or "free",
-        #chestQueue > 0 and (", " .. #chestQueue .. " waiting") or ""))
-    elseif cmd == "free" then
-      local idx = tonumber(rest)
-      if not idx or not regions[idx] then
-        print("Usage: free <region#> - see 'list' for valid region numbers.")
-      else
-        local freedFrom = {}
-        for id, ri in pairs(assignedTo) do
-          if ri == idx then
-            assignedTo[id] = nil
-            freedFrom[#freedFrom + 1] = id
-          end
-        end
-        if #freedFrom == 0 then
-          print(("Region %d wasn't assigned to anyone."):format(idx))
-        else
-          print(("Freed region %d (was turtle %s) - the next new registrant will get it."):format(
-            idx, table.concat(freedFrom, ", ")))
-        end
-      end
-    elseif cmd == "ping" then
-      print("Broadcasting ping - waiting up to 3s for live GPS responses...")
-      rednet.broadcast({ type = "ping" }, PROTOCOL)
-      local deadline = os.clock() + 3
-      local any = false
-      while os.clock() < deadline do
-        local senderId, message = rednet.receive(PROTOCOL, deadline - os.clock())
-        if senderId and type(message) == "table" and message.type == "pong" then
-          any = true
-          if message.error then
-            print(("  turtle %d: %s"):format(senderId, message.error))
-          else
-            print(("  turtle %d: live GPS (%d,%d,%d)"):format(senderId, message.x, message.y, message.z))
-          end
-        end
-      end
-      if not any then print("  no responses - no turtles currently running flatten fleet?") end
-    elseif cmd == "reset" then
-      local function printResetAck(id, message)
-        if message.ok then
-          local o, n, lp = message.oldRelative, message.newRelative, message.livePos
-          print(("  turtle %d: live GPS (%d,%d,%d)"):format(id, lp.x, lp.y, lp.z))
-          print(("    corrected: (%d,%d,%d) facing %d -> (%d,%d,%d) facing %d"):format(
-            o.x, o.y, o.z, o.facing, n.x, n.y, n.z, n.facing))
-        else
-          print(("  turtle %d could not reset: %s"):format(id, message.error))
-        end
-      end
+    write("> ")
+    local line = read()
+    local verb, rest = line:match("^%s*(%S*)%s*(.-)%s*$")
+    verb = (verb or ""):lower()
 
-      if rest:lower() == "all" then
-        print("Broadcasting reset to all turtles - waiting up to 5s for responses...")
-        rednet.broadcast({ type = "reset" }, PROTOCOL)
-        local deadline = os.clock() + 5
-        local any = false
-        while os.clock() < deadline do
-          local senderId, message = rednet.receive(PROTOCOL, deadline - os.clock())
-          if senderId and type(message) == "table" and message.type == "reset_ack" then
-            any = true
-            printResetAck(senderId, message)
-          end
-        end
-        if not any then print("  no responses - no turtles currently running flatten fleet?") end
-      else
-        local targetId = tonumber(rest)
-        if not targetId then
-          print("Usage: reset <turtleId>|all - see 'list' for known turtle IDs.")
-        else
-          print(("Requesting reset from turtle %d - waiting up to 5s..."):format(targetId))
-          rednet.send(targetId, { type = "reset" }, PROTOCOL)
-          local deadline = os.clock() + 5
-          local got = false
-          while os.clock() < deadline do
-            local senderId, message = rednet.receive(PROTOCOL, deadline - os.clock())
-            if senderId == targetId and type(message) == "table" and message.type == "reset_ack" then
-              got = true
-              printResetAck(targetId, message)
-              break
-            end
-          end
-          if not got then print("  no response - is that turtle ID running flatten fleet right now?") end
-        end
-      end
-    elseif cmd == "help" or cmd == "" then
-      printHelp()
-    else
-      print("Unknown command '" .. cmd .. "'. Type 'help'.")
+    if verb == "" then
+      -- nothing typed
+    elseif verb == "start" then cmdStart()
+    elseif verb == "stop" then
+      running = false
+      save()
+      print("stopped - turtles will idle after their current column")
+    elseif verb == "list" then cmdList()
+    elseif verb == "locate" then cmdLocate(rest)
+    elseif verb == "status" then cmdStatus()
+    elseif verb == "clear" then cmdClear()
+    elseif verb == "help" then cmdHelp()
+    elseif verb == "exit" then return
+    else print("unknown command '" .. verb .. "' - try 'help'")
     end
   end
 end
 
-print("\nWaiting for turtles to register (Ctrl+T to stop)...")
-parallel.waitForAny(rednetLoop, commandLoop)
+--------------------------------------------------------------------------
+
+if turtle then error("coordinator.lua runs on a computer, not a turtle", 0) end
+if not common.openModem() then
+  error("no modem attached - the coordinator needs a wireless modem", 0)
+end
+
+rednet.host(common.PROTOCOL, common.HOSTNAME)
+
+local x, y, z = gps.locate(3)
+if x then
+  myPos = { x = common.round(x), y = common.round(y), z = common.round(z) }
+else
+  print("!! no GPS signal - turtles will not be able to find the resupply chest")
+end
+
+if not peripheral.find("inventory") then
+  print("!! no chest next to me - put one against this computer for resupply")
+end
+
+restore()
+print("ComCraft coordinator " .. os.getComputerID() .. " ready.")
+cmdStatus()
+print("")
+
+parallel.waitForAny(commandLoop, rednetLoop, sweepLoop)
+
+rednet.unhost(common.PROTOCOL, common.HOSTNAME)
+print("coordinator stopped")
