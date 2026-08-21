@@ -19,13 +19,25 @@ local function updateOne(name)
     print("Unknown target '" .. name .. "'. Valid: " .. validNames())
     return false
   end
-  if fs.exists(name) then
-    fs.delete(name)
-  end
+
+  -- Clean up both possible filenames first - a stale "name" left sitting
+  -- next to a freshly-fetched "name.lua" is exactly how a turtle keeps
+  -- silently running an old version after every "successful" update (the
+  -- shell finds the bare name first when you just type "flatten").
+  if fs.exists(name) then fs.delete(name) end
+  if fs.exists(name .. ".lua") then fs.delete(name .. ".lua") end
+
   print("Updating " .. name .. "...")
   local ok = shell.run("wget", url, name)
-  print(ok and (name .. " updated.") or (name .. " FAILED - check network/HTTP settings."))
-  return ok
+
+  -- Normalize back to the bare name if wget saved with .lua anyway.
+  if fs.exists(name .. ".lua") and not fs.exists(name) then
+    fs.move(name .. ".lua", name)
+  end
+
+  local success = ok and fs.exists(name)
+  print(success and (name .. " updated.") or (name .. " FAILED - check network/HTTP settings."))
+  return success
 end
 
 local args = { ... }
