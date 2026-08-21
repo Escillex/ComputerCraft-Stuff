@@ -343,6 +343,53 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a turtle carrying a note from an older version ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 100, name = "upgraded", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY + 1, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 8 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  -- Exactly what an older build left behind: the store's position under its
+  -- old name, and no dir. Reading it must not produce a depot with two
+  -- names for one table, because writing that back out is refused.
+  w.files["flatten.state"] = [[{
+    pos = { x = 105, y = 64, z = 200, },
+    facing = 3,
+    depot = {
+      chest = { x = ]] .. (coordPos.x + 1) .. [[, y = ]] .. coordPos.y ..
+      [[, z = ]] .. coordPos.z .. [[, },
+      dock = { x = ]] .. (coordPos.x + 2) .. [[, y = ]] .. coordPos.y ..
+      [[, z = ]] .. coordPos.z .. [[, },
+      facing = 3,
+    },
+  }]]
+
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  check(not w.crash, "it started up on an old note without falling over" ..
+    (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local said = table.concat(w.log, "\n")
+  check(said:find("repeated entries", 1, true) == nil,
+    "and could still write its own note back out")
+  check(cleared(sim, box) == 0,
+    ("it got on with the job (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

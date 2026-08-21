@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22e"
+common.VERSION = "2026-08-22f"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -125,10 +125,19 @@ function common.looksLikeDepot(name, known)
   return false
 end
 
+-- The note on disk is a convenience, not something worth dying over: a
+-- turtle that cannot write it should carry on mining. Anything that goes
+-- wrong here is reported rather than thrown.
 function common.saveState(path, tbl)
+  local ok, text = pcall(textutils.serialize, tbl)
+  if not ok then
+    print("could not write " .. path .. ": " .. tostring(text))
+    return false
+  end
+
   local file = fs.open(path, "w")
   if not file then return false end
-  file.write(textutils.serialize(tbl))
+  file.write(text)
   file.close()
   return true
 end

@@ -68,12 +68,19 @@ end
 -- it from the side. A note left on disk by one of those must not come back
 -- as a depot with no position on it, because the position is what keeps
 -- turtles from digging the thing up.
+-- Built fresh rather than patched in place. Pointing `store` at the same
+-- table as the old `chest` would leave two names for one table, and a table
+-- that turns up twice is something CC flatly refuses to write to disk.
 local function normaliseDepot(d)
   if type(d) ~= "table" then return nil end
-  d.store = d.store or d.chest
-  d.dir = d.dir or "forward"
-  if not d.store or not d.dock then return nil end
-  return d
+  local store, dock = d.store or d.chest, d.dock
+  if not store or not dock then return nil end
+  return {
+    store  = { x = store.x, y = store.y, z = store.z },
+    dock   = { x = dock.x,  y = dock.y,  z = dock.z },
+    dir    = d.dir or "forward",
+    facing = d.facing,
+  }
 end
 
 -- Anything a person would want to do something about goes to the

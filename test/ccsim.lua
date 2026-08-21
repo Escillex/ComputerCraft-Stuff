@@ -160,12 +160,19 @@ local FUELS = {
   ["minecraft:coal_block"] = 800,
 }
 
-local function serialize(value, indent)
+-- CC:Tweaked refuses to serialize a table that appears more than once in
+-- the structure, so this has to as well - otherwise a shared reference sails
+-- through here and only blows up in the game.
+local function serialize(value, indent, seen)
   indent = indent or ""
+  seen = seen or {}
   local t = type(value)
   if t == "number" or t == "boolean" then return tostring(value) end
   if t == "string" then return string.format("%q", value) end
   if t ~= "table" then return "nil" end
+
+  if seen[value] then error("Cannot serialize table with repeated entries", 0) end
+  seen[value] = true
 
   local parts = { "{\n" }
   local inner = indent .. "  "
@@ -174,9 +181,9 @@ local function serialize(value, indent)
     if type(k) == "string" and k:match("^[%a_][%w_]*$") then
       ks = k .. " = "
     else
-      ks = "[" .. serialize(k, inner) .. "] = "
+      ks = "[" .. serialize(k, inner, seen) .. "] = "
     end
-    parts[#parts + 1] = inner .. ks .. serialize(v, inner) .. ",\n"
+    parts[#parts + 1] = inner .. ks .. serialize(v, inner, seen) .. ",\n"
   end
   parts[#parts + 1] = indent .. "}"
   return table.concat(parts)
