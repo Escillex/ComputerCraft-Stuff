@@ -197,6 +197,9 @@ local function rednetLoop()
           x = message.x, y = message.y, z = message.z,
           cell = message.cell, total = message.total, seenAt = os.epoch("utc"),
         }
+      elseif message.type == "blocked" then
+        print(("turtle %d: blocked by another turtle near (%d,%d,%d), skipped that cell"):format(
+          senderId, message.x, message.y, message.z))
       elseif message.type == "register" then
         local regionIndex = assignedTo[senderId]
         if not regionIndex and nextRegion <= #regions then

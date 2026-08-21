@@ -466,17 +466,56 @@ local function isProtectedBlock(inspectFn, tx, ty, tz)
   return false
 end
 
+-- Thrown by clearAhead/Below/Above (via handleTurtleBlock) to tell the main
+-- dig loop "give up on this one cell, not the whole job" - only ever raised
+-- in fleet mode, where another turtle legitimately working nearby is
+-- expected and skipping around it is the right call.
+local SKIP_CELL = { skipCell = true }
+
+-- Called when persistently blocked by another turtle (not the chest).
+-- Re-verifies this turtle's own GPS position first - the "collision" might
+-- just be its own drift rather than a real conflict - self-corrects if so,
+-- reports the blockage to the coordinator, and tells the caller whether to
+-- skip this cell (fleet mode only) or fall through to a hard error.
+local function handleTurtleBlock()
+  if not (FLEET_MODE and gpsOrigin) then return false end
+
+  local livePos, liveFacingVec = gpsFix()
+  if livePos and liveFacingVec then
+    local relX, relZ = worldDeltaToRelative(
+      livePos.x - gpsOrigin.pos.x, livePos.z - gpsOrigin.pos.z, gpsOrigin.facingVec)
+    local relY = livePos.y - gpsOrigin.pos.y
+    local newFacing = worldVectorToFacing(gpsOrigin.facingVec, liveFacingVec)
+    if relX ~= pos.x or relY ~= pos.y or relZ ~= pos.z or newFacing ~= facing then
+      log("blocked by another turtle - GPS reverify found drift: (%d,%d,%d) facing %d -> (%d,%d,%d) facing %d",
+        pos.x, pos.y, pos.z, facing, relX, relY, relZ, newFacing)
+      pos.x, pos.y, pos.z = relX, relY, relZ
+      facing = newFacing
+      persist()
+    else
+      log("blocked by another turtle - GPS reverify confirms own position is correct")
+    end
+  end
+
+  rednet.send(coordinatorId, { type = "blocked", x = pos.x, y = pos.y, z = pos.z }, FLEET_PROTOCOL)
+  log("reported the blockage to the coordinator, skipping this cell")
+  return true
+end
+
 local function clearAhead()
   plugLiquid(turtle.inspect, turtle.place)
   local d = DIRS[facing]
   local tx, ty, tz = pos.x + d.x, pos.y, pos.z + d.z
   local tries = 0
   while turtle.detect() do
+    local protectedYes, what = isProtectedBlock(turtle.inspect, tx, ty, tz)
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
+      if what == "another turtle" and handleTurtleBlock() then
+        error(SKIP_CELL)
+      end
       error("Stuck: could not clear the block ahead after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    local protectedYes, what = isProtectedBlock(turtle.inspect, tx, ty, tz)
     if protectedYes then
       log("clearAhead: refusing to dig %s - waiting", what)
     elseif not turtle.dig() then
@@ -491,11 +530,14 @@ local function clearBelow()
   local tx, ty, tz = pos.x, pos.y - 1, pos.z
   local tries = 0
   while turtle.detectDown() do
+    local protectedYes, what = isProtectedBlock(turtle.inspectDown, tx, ty, tz)
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
+      if what == "another turtle" and handleTurtleBlock() then
+        error(SKIP_CELL)
+      end
       error("Stuck: could not clear the block below after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    local protectedYes, what = isProtectedBlock(turtle.inspectDown, tx, ty, tz)
     if protectedYes then
       log("clearBelow: refusing to dig %s - waiting", what)
     elseif not turtle.digDown() then
@@ -510,11 +552,14 @@ local function clearAbove()
   local tx, ty, tz = pos.x, pos.y + 1, pos.z
   local tries = 0
   while turtle.detectUp() do
+    local protectedYes, what = isProtectedBlock(turtle.inspectUp, tx, ty, tz)
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
+      if what == "another turtle" and handleTurtleBlock() then
+        error(SKIP_CELL)
+      end
       error("Stuck: could not clear the block above after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    local protectedYes, what = isProtectedBlock(turtle.inspectUp, tx, ty, tz)
     if protectedYes then
       log("clearAbove: refusing to dig %s - waiting", what)
     elseif not turtle.digUp() then
@@ -784,17 +829,26 @@ local function run(x1, y1, z1, x2, y2, z2, startIndex)
       lastLoggedY = c.y
     end
 
-    goTo(c.x, c.y, c.z)
+    local stepOk, stepErr = pcall(function()
+      goTo(c.x, c.y, c.z)
 
-    -- bottom layer only: fill one block down, but only if empty/liquid, never solid ground
-    if c.y == minY then
-      local ok, data = turtle.inspectDown()
-      if not ok or data.name == "minecraft:water" or data.name == "minecraft:lava" then
-        local fillSlot = findFillSlot()
-        if fillSlot then
-          turtle.select(fillSlot)
-          turtle.placeDown()
+      -- bottom layer only: fill one block down, but only if empty/liquid, never solid ground
+      if c.y == minY then
+        local ok, data = turtle.inspectDown()
+        if not ok or data.name == "minecraft:water" or data.name == "minecraft:lava" then
+          local fillSlot = findFillSlot()
+          if fillSlot then
+            turtle.select(fillSlot)
+            turtle.placeDown()
+          end
         end
+      end
+    end)
+    if not stepOk then
+      if type(stepErr) == "table" and stepErr.skipCell then
+        log("skipping cell %d/%d (%d,%d,%d) - blocked by another turtle", i, #cells, c.x, c.y, c.z)
+      else
+        error(stepErr, 0)
       end
     end
 
