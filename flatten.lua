@@ -97,12 +97,28 @@ local function rotateWorldVectorCW(v)
   return { x = v.z, z = -v.x }
 end
 
+-- Burns a single fuel item from inventory if the tank's completely empty,
+-- so the test-move below has something to run on. Without this, a turtle
+-- that ran dry mid-job can never pass GPS facing-detection even with fuel
+-- sitting right there in its inventory - it needs fuel to move, but never
+-- gets the chance to refuel since that normally only happens mid-job.
+local function ensureTinyFuelReserve()
+  if turtle.getFuelLevel() == "unlimited" or turtle.getFuelLevel() >= 1 then return end
+  for slot = 1, 16 do
+    if turtle.getItemCount(slot) > 0 then
+      turtle.select(slot)
+      if turtle.refuel(1) then return end
+    end
+  end
+end
+
 -- Moves forward+back to measure which world direction is facing 0, via two
 -- GPS fixes. Tries all 4 sides (never digs) in case boxed in on the
 -- original facing, e.g. sitting in a tunnel. Always restores exact facing.
 local function measureGpsFacing()
   local before = gpsLocate()
   if not before then return nil end
+  ensureTinyFuelReserve()
 
   for turnsFromStart = 0, 3 do
     if not turtle.detect() and turtle.forward() then
