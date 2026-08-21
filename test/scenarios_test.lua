@@ -219,6 +219,105 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== more turtles than there is work for ===")
+--------------------------------------------------------------------------
+do
+  -- A tiny area and five turtles, so almost all of them are idle almost
+  -- all of the time: the state a job ends up in as the last few columns
+  -- go. Idle turtles must get out of the way rather than stand in the
+  -- middle of the site jostling the ones still working.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 62, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 5 do
+    local w = sim.addMachine({ id = 70 + i, name = "t" .. (70 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY + 1, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+
+  local function allDone()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end
+  sim.run(20000, allDone)
+
+  check(allDone(), "every turtle finished rather than jamming")
+  check(cleared(sim, box) == 0,
+    ("the area was cleared (%d blocks left)"):format(cleared(sim, box)))
+
+  local moves, bumps, crashes = 0, 0, {}
+  for _, w in ipairs(crew) do
+    moves = moves + w.moves
+    bumps = bumps + w.bumps
+    if w.crash then crashes[#crashes + 1] = w.name .. ": " .. tostring(w.crash) end
+  end
+  check(#crashes == 0, "none of them crashed " .. table.concat(crashes, "; "))
+
+  -- The real measure: how often one turtle walked into another. Idle
+  -- turtles standing about on the site is what drives this up.
+  check(bumps < 40, ("they kept out of each other's way (%d collisions)"):format(bumps))
+  print(("        finished at %ds, %d moves, %d collisions across 5 turtles")
+    :format(math.floor(sim.now()), moves, bumps))
+end
+
+--------------------------------------------------------------------------
+print("\n=== trouble is reported on the coordinator, not just the turtle ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos = buildWorld(sim, box)
+
+  -- Seal the coordinator in on all four sides. There is now no way to the
+  -- chest that does not involve breaking something, so the turtle should
+  -- give up on it and say so where a person will actually see it.
+  for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+    for y = box.minY, box.maxY + 12 do
+      sim.setBlock(coordPos.x + d[1] * 2, y, coordPos.z + d[2] * 2, "minecraft:obsidian")
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 60, name = "stuck", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY + 1, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 3 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 600)
+
+  table.insert(coord.console, "list")
+  sim.run(sim.now() + 20)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("turtle 60:", 1, true) ~= nil,
+    "the coordinator printed the turtle's complaint")
+  check(log:find("chest", 1, true) ~= nil, "it said what the problem was")
+  check(log:find("it is at x=", 1, true) ~= nil, "it said where the turtle was")
+
+  for _, line in ipairs(coord.log) do
+    if line:find("turtle 60:") or line:find("it is at") or line:find("%^ ") then
+      print("        " .. line)
+    end
+  end
+end
+
+--------------------------------------------------------------------------
 print("\n=== reset.lua wipes everything but rom ===")
 --------------------------------------------------------------------------
 do

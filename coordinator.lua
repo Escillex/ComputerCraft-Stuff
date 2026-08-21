@@ -265,6 +265,8 @@ local function handle(id, msg)
     releaseCell(id, msg.cell, "done")
     entry.cell = nil
     entry.state = "idle"
+    -- Finishing a column means whatever it was complaining about is over.
+    entry.trouble, entry.troubleAt = nil, nil
     save()
 
   elseif msg.type == common.CELL_SKIP then
@@ -294,6 +296,11 @@ local function handle(id, msg)
 
   elseif msg.type == common.DEPOT_RELEASE then
     if depotHolder == id then depotHolder, depotSince = nil, nil end
+
+  elseif msg.type == common.TROUBLE then
+    entry.trouble, entry.troubleAt = msg.message, os.clock()
+    print(("turtle %d: %s"):format(id, tostring(msg.message)))
+    print(("  it is at %s"):format(common.formatPos(msg.pos or entry.pos)))
 
   elseif msg.type == common.DEPOT_FOUND then
     if not depot and msg.depot then
@@ -363,6 +370,9 @@ local function cmdList()
     print(("%-5d %-10s %-24s %-10s %s"):format(
       id, entry.state or "?", common.formatPos(entry.pos),
       ago(entry.lastSeen), tostring(entry.fuel or "?")))
+    if entry.trouble then
+      print("      ^ " .. entry.trouble)
+    end
   end
 end
 
@@ -379,6 +389,9 @@ local function cmdLocate(arg)
   print("  fuel:     " .. tostring(entry.fuel or "?"))
   if entry.cell then
     print(("  cell:     %d,%d"):format(entry.cell.x, entry.cell.z))
+  end
+  if entry.trouble then
+    print(("  problem:  %s (%s)"):format(entry.trouble, ago(entry.troubleAt)))
   end
   if entry.state == "missing" then
     print("  (gone quiet - the position above is where it was last heard from)")

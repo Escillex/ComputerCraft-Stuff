@@ -63,6 +63,20 @@ local function saveLocal()
   common.saveState(STATE_FILE, { pos = pos, facing = facing, depot = depot })
 end
 
+-- Anything a person would want to do something about goes to the
+-- coordinator as well as this turtle's own screen - nobody is stood
+-- watching a turtle at the bottom of a hole. Repeats of the same
+-- complaint are held back so a stuck turtle does not bury the console.
+local lastTrouble, lastTroubleAt = nil, -math.huge
+
+local function trouble(message)
+  print("!! " .. message)
+  if not coordId then return end
+  if message == lastTrouble and os.clock() - lastTroubleAt < 60 then return end
+  lastTrouble, lastTroubleAt = message, os.clock()
+  tell({ type = common.TROUBLE, message = message, pos = pos })
+end
+
 --------------------------------------------------------------------------
 -- Fuel
 --------------------------------------------------------------------------
@@ -431,10 +445,10 @@ local function useDepot()
   turnTo(depot.facing)
 
   if not dumpInventory() then
-    print("!! the resupply chest is FULL - empty it or I cannot keep mining")
+    trouble("the resupply chest is FULL - empty it or I cannot keep mining")
   end
   if not takeFuel(tripCost(depot.dock) + FUEL_MARGIN * 4) then
-    print("!! no fuel left in the resupply chest - put coal in it")
+    trouble("no fuel left in the resupply chest - put coal in it")
   end
 
   -- Climb off the dock before handing the chest on, so the next turtle in
@@ -480,6 +494,19 @@ end
 --------------------------------------------------------------------------
 -- Mining
 --------------------------------------------------------------------------
+
+-- With nothing to do, get off the travel plane. Towards the end of a job
+-- the last few columns are too close together to share out, so most of the
+-- fleet ends up idle - and an idle turtle sat in the middle of the site is
+-- something the ones still working have to keep going round. Each turtle
+-- waits at its own height above the area so they do not stack up on each
+-- other either.
+local function parkOutOfTheWay()
+  if not box then return end
+  local parkY = box.maxY + 2 + (os.getComputerID() % 4)
+  if pos.y >= parkY then return end
+  goToY(parkY)
+end
 
 -- Clear one column of the box from the top down, patch the floor beneath
 -- it, then climb back to the travel plane. Returns "done", "full" when the
@@ -537,7 +564,7 @@ local function workerLoop()
     if needsDepot() then
       local ok, why = depotRun()
       if not ok then
-        print("could not reach the depot: " .. tostring(why))
+        trouble("could not reach the chest: " .. tostring(why))
         sleep(5)
       end
     end
@@ -553,7 +580,8 @@ local function workerLoop()
         print("job finished - nothing left to clear")
         return
       elseif reply.type == common.NO_CELL then
-        state = "waiting"
+        state = "parked"
+        parkOutOfTheWay()
         sleep(3)
       elseif reply.type == common.CELL then
         myCell = reply.cell

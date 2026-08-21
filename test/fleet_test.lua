@@ -171,12 +171,16 @@ check(#stillRunning == 0,
   "every worker stood down once the job finished" ..
   (#stillRunning > 0 and (" (still going: " .. table.concat(stillRunning, ", ") .. ")") or ""))
 
-local totalMoves, totalDigs = 0, 0
+local totalMoves, totalDigs, totalBumps = 0, 0, 0
 for _, w in ipairs(workers) do
   totalMoves = totalMoves + w.moves
   totalDigs = totalDigs + w.digs
+  totalBumps = totalBumps + w.bumps
 end
-print(("\n  %d moves, %d digs across %d turtles"):format(totalMoves, totalDigs, #workers))
+check(totalBumps < 120,
+  ("they mostly kept out of each other's way (%d collisions)"):format(totalBumps))
+print(("\n  %d moves, %d digs, %d collisions across %d turtles")
+  :format(totalMoves, totalDigs, totalBumps, #workers))
 
 local log = coordinator.log
 print("\n  last coordinator output:")

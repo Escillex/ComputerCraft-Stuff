@@ -439,7 +439,13 @@ local function makeEnv(m)
     end
 
     local function move(x, y, z)
-      if occupant(x, y, z) then return false, "Movement obstructed" end
+      local blocker, other = occupant(x, y, z)
+      if blocker then
+        -- Count turtle-on-turtle jostling separately: it is the thing that
+        -- makes a fleet crawl, and it does not show up in move counts.
+        if other then m.bumps = m.bumps + 1 end
+        return false, "Movement obstructed"
+      end
       if m.fuel <= 0 then return false, "Out of fuel" end
       m.fuel = m.fuel - 1
       m.pos = { x = x, y = y, z = z }
@@ -599,6 +605,7 @@ function sim.addMachine(opts)
     shellRun = opts.shellRun,
     moves = 0,
     digs = 0,
+    bumps = 0,
   }
   machines[#machines + 1] = m
   return m

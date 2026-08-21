@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22a"
+common.VERSION = "2026-08-22b"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -24,6 +24,7 @@ common.HEARTBEAT     = "heartbeat"
 common.DEPOT_FOUND   = "depot_found"
 common.WANT_DEPOT    = "want_depot"
 common.DEPOT_RELEASE = "depot_release"
+common.TROUBLE       = "trouble"     -- something a person needs to know about
 
 -- Coordinator -> worker
 common.WELCOME     = "welcome"

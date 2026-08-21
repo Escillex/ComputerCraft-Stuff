@@ -56,7 +56,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22a (turtle 7)
+flatten 2026-08-22b (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -69,7 +69,7 @@ If a turtle reports a different version from the coordinator, run
 | `start` | begin handing out work |
 | `stop` | stop handing out work |
 | `list` | every turtle: state, position, when it was last heard from |
-| `locate <id>` | where one turtle is, **even if it has gone quiet** |
+| `locate <id>` | where one turtle is (**even if it has gone quiet**) and the last problem it reported |
 | `status` | area, progress, and where the chest is |
 | `clear` | forget the area so you can mark a new one |
 | `exit` | quit |
@@ -95,7 +95,22 @@ in the way it waits, and if it is still there a moment later the turtle
 reports back and gets sent somewhere more useful.
 
 Only one turtle uses the chest at a time. Mined blocks go in it; fuel
-comes out of it. If it fills up, or runs out of coal, the turtles say so.
+comes out of it.
+
+Towards the end of a job the last few columns are too close together to
+share out, so most of the fleet has nothing to do. Rather than stand about
+on the site getting in the way, an idle turtle waits above the area, each
+one at its own height.
+
+## When something goes wrong
+
+Anything a turtle needs you for - the chest is full, it has run out of
+coal, it cannot find a way to the chest - is printed **on the
+coordinator**, with the turtle's id and where it is standing. Nobody is
+watching the screen of a turtle at the bottom of a hole.
+
+The same note shows up against that turtle in `list`, and in full under
+`locate <id>`, until it gets back to work.
 
 ## Files
 
