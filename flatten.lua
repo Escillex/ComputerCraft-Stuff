@@ -1196,38 +1196,11 @@ local function main(...)
   end
 
   local saved = loadState()
-  if saved then
-    io.write(("Found an interrupted job (corner1 %d,%d,%d -> corner2 %d,%d,%d). Resume? (y/n): ")
-      :format(saved.job.x1, saved.job.y1, saved.job.z1, saved.job.x2, saved.job.y2, saved.job.z2))
-    local answer = read()
-    if answer and answer:lower():sub(1, 1) == "y" then
-      if saved.gpsOrigin and gpsPos and gpsFacingVec then
-        local relX, relZ = worldDeltaToRelative(
-          gpsPos.x - saved.gpsOrigin.pos.x, gpsPos.z - saved.gpsOrigin.pos.z, saved.gpsOrigin.facingVec)
-        local relY = gpsPos.y - saved.gpsOrigin.pos.y
-        local newFacing = worldVectorToFacing(saved.gpsOrigin.facingVec, gpsFacingVec)
-        log("GPS recalibration: saved pos (%d,%d,%d) facing %d -> corrected (%d,%d,%d) facing %d",
-          saved.pos.x, saved.pos.y, saved.pos.z, saved.facing, relX, relY, relZ, newFacing)
-        pos.x, pos.y, pos.z = relX, relY, relZ
-        facing = newFacing
-        gpsOrigin = saved.gpsOrigin
-      else
-        pos.x, pos.y, pos.z = saved.pos.x, saved.pos.y, saved.pos.z
-        facing = saved.facing
-      end
-      if saved.home then
-        HOME.x, HOME.y, HOME.z = saved.home.x, saved.home.y, saved.home.z
-      end
-      if saved.homeChestDir then
-        HOME_CHEST_DIR = saved.homeChestDir
-      end
-      print("Resuming...")
-      run(saved.job.x1, saved.job.y1, saved.job.z1, saved.job.x2, saved.job.y2, saved.job.z2, saved.job.nextIndex)
-      return
-    end
-    fs.delete(STATE_FILE)
-  end
 
+  -- Fleet mode is meant to run unattended (startup.lua retries it forever
+  -- on failure with nobody watching) - it must never block on an
+  -- interactive prompt. So it's checked first, before the resume prompt
+  -- below, and does its own silent resume-if-matching using `saved`.
   if args[1] and tostring(args[1]):lower() == "fleet" then
     if not (gpsPos and gpsFacingVec) then
       error("Fleet mode needs GPS (no modem/satellites, or blocked) - fix that and retry.")
@@ -1291,6 +1264,38 @@ local function main(...)
       fleetListener
     )
     return
+  end
+
+  if saved then
+    io.write(("Found an interrupted job (corner1 %d,%d,%d -> corner2 %d,%d,%d). Resume? (y/n): ")
+      :format(saved.job.x1, saved.job.y1, saved.job.z1, saved.job.x2, saved.job.y2, saved.job.z2))
+    local answer = read()
+    if answer and answer:lower():sub(1, 1) == "y" then
+      if saved.gpsOrigin and gpsPos and gpsFacingVec then
+        local relX, relZ = worldDeltaToRelative(
+          gpsPos.x - saved.gpsOrigin.pos.x, gpsPos.z - saved.gpsOrigin.pos.z, saved.gpsOrigin.facingVec)
+        local relY = gpsPos.y - saved.gpsOrigin.pos.y
+        local newFacing = worldVectorToFacing(saved.gpsOrigin.facingVec, gpsFacingVec)
+        log("GPS recalibration: saved pos (%d,%d,%d) facing %d -> corrected (%d,%d,%d) facing %d",
+          saved.pos.x, saved.pos.y, saved.pos.z, saved.facing, relX, relY, relZ, newFacing)
+        pos.x, pos.y, pos.z = relX, relY, relZ
+        facing = newFacing
+        gpsOrigin = saved.gpsOrigin
+      else
+        pos.x, pos.y, pos.z = saved.pos.x, saved.pos.y, saved.pos.z
+        facing = saved.facing
+      end
+      if saved.home then
+        HOME.x, HOME.y, HOME.z = saved.home.x, saved.home.y, saved.home.z
+      end
+      if saved.homeChestDir then
+        HOME_CHEST_DIR = saved.homeChestDir
+      end
+      print("Resuming...")
+      run(saved.job.x1, saved.job.y1, saved.job.z1, saved.job.x2, saved.job.y2, saved.job.z2, saved.job.nextIndex)
+      return
+    end
+    fs.delete(STATE_FILE)
   end
 
   if gpsPos and gpsFacingVec then
