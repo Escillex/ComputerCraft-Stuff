@@ -58,7 +58,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22h (turtle 7)
+flatten 2026-08-22i (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -67,6 +67,27 @@ If a turtle reports a different version from the coordinator, run
 `update` asks for each file with a one-off query string, because GitHub
 serves raw files through a cache that can hand back a copy several minutes
 old - which looks exactly like an update that did nothing.
+
+## Updating in the middle of a job
+
+Progress is kept, so a job can be stopped, everything updated, and the same
+job carried on:
+
+1. `stop` on the coordinator. Turtles finish the column they are on and
+   then wait.
+2. On each turtle, hold **Ctrl+T** to stop it. If `startup.lua` is
+   installed it will try to start again after ten seconds, so hold Ctrl+T
+   once more while it is waiting. Then `update all`.
+3. On the coordinator, `exit`, then `update all`, then `coordinator`.
+4. `start`.
+
+It picks up where it left off - the columns already cleared are remembered,
+and the one that was being dug when you stopped goes back in the pool. The
+area and the store's position are remembered too, so there is no need to
+mark the corners again.
+
+Every computer has to be on the same version before the job will run, which
+is what the version line on startup is for.
 
 ## Coordinator commands
 

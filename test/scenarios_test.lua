@@ -611,6 +611,59 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== updating in the middle of a job ===")
+--------------------------------------------------------------------------
+do
+  -- Stopping a job, updating every computer and carrying on is the normal
+  -- way to pick up a fix. The state file on disk was written by the version
+  -- being replaced, so it has to be readable by the one taking over or the
+  -- fleet goes back over ground it has already cleared.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+
+  -- Exactly what an older coordinator left behind: a table per column, and
+  -- no marks string. Two of the sixteen columns were finished, and one was
+  -- being worked when the plug was pulled.
+  local older = ([[{
+    corners = { { x = %d, y = %d, z = %d, }, { x = %d, y = %d, z = %d, }, },
+    box = { minX = %d, maxX = %d, minY = %d, maxY = %d, minZ = %d, maxZ = %d, },
+    running = false,
+    cells = {
+      ["%d,%d"] = { x = %d, z = %d, state = "done", attempts = 0, },
+      ["%d,%d"] = { x = %d, z = %d, state = "done", attempts = 0, },
+      ["%d,%d"] = { x = %d, z = %d, state = "claimed", attempts = 0, },
+    },
+  }]]):format(
+    box.minX, box.maxY, box.minZ, box.maxX, box.minY, box.maxZ,
+    box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ,
+    box.minX, box.minZ, box.minX, box.minZ,
+    box.minX, box.minZ + 1, box.minX, box.minZ + 1,
+    box.maxX, box.maxZ, box.maxX, box.maxZ)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  coord.files["coordinator.state"] = older
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("area: 4 x 3 x 4", 1, true) ~= nil, "it read the area off the old file")
+  local done = tonumber(log:match("columns: (%d+) done"))
+  check(done == 2, ("and the columns already finished (%s of them)"):format(tostring(done)))
+  local togo = tonumber(log:match("(%d+) to go"))
+  check(togo == 14,
+    ("the one being worked went back in the pool (%s to go)"):format(tostring(togo)))
+
+  for _, line in ipairs(coord.log) do
+    if line:find("^columns:") then print("        " .. line) end
+  end
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

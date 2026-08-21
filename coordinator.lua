@@ -139,7 +139,19 @@ local function restore()
   running = saved.running or false
   if box then
     buildCells()
-    applyCells(saved.marks)
+    if saved.marks then
+      applyCells(saved.marks)
+    else
+      -- Written by a version that kept a table per column. Read it once so
+      -- that updating in the middle of a job does not throw away everything
+      -- already dug and send the turtles back over it.
+      for key, cell in pairs(saved.cells or {}) do
+        local live = cells[key]
+        if live and cell.state and cell.state ~= "claimed" then
+          live.state = cell.state
+        end
+      end
+    end
   end
 end
 
