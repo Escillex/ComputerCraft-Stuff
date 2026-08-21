@@ -448,15 +448,38 @@ local function plugLiquid(inspectFn, placeFn)
   end
 end
 
+-- Turtles are real, diggable blocks - without this check, clearAhead/Below/
+-- Above will happily mine another turtle (or the shared resupply chest, if
+-- a straight-line approach path happens to cross its cell) right off the
+-- map. Refuses to dig either; waits instead, on the assumption a turtle in
+-- the way will eventually move, and the chest never should be there at all.
+local function isProtectedBlock(inspectFn, tx, ty, tz)
+  local ok, data = inspectFn()
+  if not ok then return false end
+  if data.name == "computercraft:turtle_normal" or data.name == "computercraft:turtle_advanced" then
+    return true, "another turtle"
+  end
+  local cx, cy, cz = chestPosition()
+  if tx == cx and ty == cy and tz == cz then
+    return true, "the resupply chest"
+  end
+  return false
+end
+
 local function clearAhead()
   plugLiquid(turtle.inspect, turtle.place)
+  local d = DIRS[facing]
+  local tx, ty, tz = pos.x + d.x, pos.y, pos.z + d.z
   local tries = 0
   while turtle.detect() do
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
       error("Stuck: could not clear the block ahead after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    if not turtle.dig() then
+    local protectedYes, what = isProtectedBlock(turtle.inspect, tx, ty, tz)
+    if protectedYes then
+      log("clearAhead: refusing to dig %s - waiting", what)
+    elseif not turtle.dig() then
       turtle.attack()
     end
     sleep(0.4)
@@ -465,13 +488,17 @@ end
 
 local function clearBelow()
   plugLiquid(turtle.inspectDown, turtle.placeDown)
+  local tx, ty, tz = pos.x, pos.y - 1, pos.z
   local tries = 0
   while turtle.detectDown() do
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
       error("Stuck: could not clear the block below after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    if not turtle.digDown() then
+    local protectedYes, what = isProtectedBlock(turtle.inspectDown, tx, ty, tz)
+    if protectedYes then
+      log("clearBelow: refusing to dig %s - waiting", what)
+    elseif not turtle.digDown() then
       turtle.attackDown()
     end
     sleep(0.4)
@@ -480,13 +507,17 @@ end
 
 local function clearAbove()
   plugLiquid(turtle.inspectUp, turtle.placeUp)
+  local tx, ty, tz = pos.x, pos.y + 1, pos.z
   local tries = 0
   while turtle.detectUp() do
     tries = tries + 1
     if tries > DIG_RETRY_LIMIT then
       error("Stuck: could not clear the block above after " .. DIG_RETRY_LIMIT .. " tries.")
     end
-    if not turtle.digUp() then
+    local protectedYes, what = isProtectedBlock(turtle.inspectUp, tx, ty, tz)
+    if protectedYes then
+      log("clearAbove: refusing to dig %s - waiting", what)
+    elseif not turtle.digUp() then
       turtle.attackUp()
     end
     sleep(0.4)
