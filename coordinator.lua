@@ -52,6 +52,20 @@ local function readCount(promptText)
 end
 
 local args = { ... }
+
+if args[1] and (tostring(args[1]):lower() == "help" or tostring(args[1]):lower() == "--help") then
+  print("Usage: coordinator <x1> <y1> <z1> <x2> <y2> <z2> <turtleCount> <chestX> <chestY> <chestZ> <chestDir>")
+  print("  or: coordinator            (prompts for the same)")
+  print()
+  print("x1/y1/z1 and x2/y2/z2 are the two corners of the job box, as real F3 coordinates.")
+  print("turtleCount is how many turtles will split the job.")
+  print("chestX/Y/Z is the resupply park spot's coordinates; chestDir is a compass direction")
+  print("(north/south/east/west/up/down, or n/s/e/w/u/d) for which way the chest is from there.")
+  print()
+  print("Once running, type 'help' at its prompt for admin commands (list/free/ping/reset).")
+  return
+end
+
 local x1, y1, z1, x2, y2, z2, turtleCount, chestX, chestY, chestZ, chestDir
 
 if #args >= 11 then
