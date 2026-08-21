@@ -169,6 +169,56 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== it goes over somebody's build, not through it ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos = buildWorld(sim, box)
+
+  -- A wall right across the route between the dig site and the chest,
+  -- stretching far enough either way that going round is not an option.
+  local wall = {}
+  for z = box.minZ - 20, box.maxZ + 20 do
+    for y = box.minY, box.maxY + 3 do
+      sim.setBlock(box.maxX + 1, y, z, "minecraft:stone_bricks")
+      wall[#wall + 1] = { x = box.maxX + 1, y = y, z = z }
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Barely any fuel, so it has to go and find the chest before it can do
+  -- anything else. Without this it finishes the whole area on one tank and
+  -- never crosses the wall at all.
+  local w = sim.addMachine({ id = 40, name = "walled", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY + 1, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 3 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local broken = 0
+  for _, b in ipairs(wall) do
+    if not sim.getBlock(b.x, b.y, b.z) then broken = broken + 1 end
+  end
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+  -- It only counts as going round if it actually got to the chest.
+  check(table.concat(coord.log, "\n"):find("chest found", 1, true) ~= nil,
+    "it found its way over to the chest")
+  check(broken == 0, ("the wall was left standing (%d of %d blocks broken)")
+    :format(broken, #wall))
+  check(cleared(sim, box) == 0,
+    ("it still cleared the marked area (%d blocks left)"):format(cleared(sim, box)))
+  print(("        %d moves, %d digs"):format(w.moves, w.digs))
+end
+
+--------------------------------------------------------------------------
 print("\n=== reset.lua wipes everything but rom ===")
 --------------------------------------------------------------------------
 do

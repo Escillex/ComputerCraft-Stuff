@@ -38,6 +38,30 @@ update all
    or after the job starts, and you can add more at any time.
 4. On the coordinator, type `start`.
 
+## What it will and will not break
+
+The turtles only break blocks inside the footprint you marked, at or above
+its floor - the area itself, and the room directly over it so they can drop
+in and climb out. Everything else is left alone: on the way to the chest
+they go **over** your buildings and terrain, never through them.
+
+If a turtle cannot find a way round, it says so and carries on mining
+rather than tunnelling.
+
+## Checking what version is installed
+
+Every program prints its version on startup, and `update all` prints the
+version it just put on disk along with each stale file it deleted. The
+coordinator refuses to talk to a turtle running a different version, so a
+computer still quietly running an old copy shows up immediately:
+
+```
+flatten 2026-08-22a (turtle 7)
+```
+
+If a turtle reports a different version from the coordinator, run
+`update all` on it again.
+
 ## Coordinator commands
 
 | | |

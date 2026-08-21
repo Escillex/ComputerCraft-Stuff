@@ -39,13 +39,28 @@ local function fetch(name)
   -- Only clear the old copies once the new one is safely on disk. Both
   -- spellings go: a stale `flatten` sitting next to a fresh `flatten.lua`
   -- is exactly how a turtle keeps running last week's code after every
-  -- apparently successful update.
-  if fs.exists(name) then fs.delete(name) end
-  if fs.exists(name .. ".lua") then fs.delete(name .. ".lua") end
+  -- apparently successful update. Say which ones went, so you can see it
+  -- happen rather than take it on trust.
+  for _, stale in ipairs({ name, name .. ".lua" }) do
+    if fs.exists(stale) then
+      fs.delete(stale)
+      print("  removed old " .. stale)
+    end
+  end
   fs.move(temp, entry.save)
 
-  print(name .. " updated")
+  print("  " .. name .. " -> " .. entry.save)
   return true
+end
+
+-- Read the version out of the copy now on disk, rather than trusting that
+-- the download did what it said.
+local function installedVersion()
+  if not fs.exists("common.lua") then return nil end
+  local file = fs.open("common.lua", "r")
+  local source = file.readAll()
+  file.close()
+  return source:match('VERSION%s*=%s*"([^"]+)"')
 end
 
 local function updateWithDeps(name, done)
@@ -83,4 +98,7 @@ else
 end
 
 if not allOk then error("one or more updates failed - see above", 0) end
-print("done")
+
+local version = installedVersion()
+print("now on version " .. (version or "unknown - common.lua missing"))
+print("every computer in the fleet must be on this same version")

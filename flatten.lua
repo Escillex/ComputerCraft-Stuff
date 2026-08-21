@@ -92,10 +92,30 @@ local DIG     = { forward = turtle.dig,     up = turtle.digUp,     down = turtle
 local MOVE    = { forward = turtle.forward, up = turtle.up,        down = turtle.down }
 local ATTACK  = { forward = turtle.attack,  up = turtle.attackUp,  down = turtle.attackDown }
 
+local function stepTarget(dir)
+  if dir == "up" then return pos.x, pos.y + 1, pos.z end
+  if dir == "down" then return pos.x, pos.y - 1, pos.z end
+  local f = common.FACINGS[facing]
+  return pos.x + f.dx, pos.y, pos.z + f.dz
+end
+
+-- The turtle only ever breaks blocks standing in the footprint that was
+-- marked out, at or above its floor. That covers the area itself and the
+-- room directly over it, so a turtle can drop in and climb out, while
+-- everything around the site - the way to the chest included - is left
+-- exactly as it was found.
+local function mayBreakAt(x, y, z)
+  if not box then return false end
+  return x >= box.minX and x <= box.maxX
+     and z >= box.minZ and z <= box.maxZ
+     and y >= box.minY
+end
+
 -- Move one block, clearing the way if what is there is safe to break.
 -- Anything protected (another turtle, a chest) is waited out, never dug.
 local function stepDir(dir)
   local waited = 0
+  local mayDig = mayBreakAt(stepTarget(dir))
   for _ = 1, STEP_ATTEMPTS do
     if MOVE[dir]() then return true end
 
@@ -113,6 +133,10 @@ local function stepDir(dir)
     elseif common.isProtected(info.name) then
       -- A chest or a computer is never going to move, so say so at once
       -- and let the caller go round it.
+      return false, info.name
+    elseif not mayDig then
+      -- Outside the marked area this is somebody's build, not spoil. Go
+      -- round it rather than through it.
       return false, info.name
     elseif not DIG[dir]() then
       -- Bedrock, or a block this turtle's tool cannot break.
@@ -170,23 +194,33 @@ local function goToY(y)
   return true
 end
 
--- Walk to an X/Z position, one axis at a time. If something refuses to
--- move out of the way, climb over it rather than giving up immediately.
-local function goToXZ(x, z)
-  local detours = 0
+-- Walk to an X/Z position. Outside the marked area nothing gets broken, so
+-- getting there is a matter of going round: try whichever axis still needs
+-- progress, and climb over only when both are shut. Height gained that way
+-- is given back as soon as there is floor to drop to, so the turtle does
+-- not end up crawling home along the top of a mountain.
+local function goToXZ(x, z, floorY)
+  local climbs, lastWhy = 0, "blocked"
   while pos.x ~= x or pos.z ~= z do
-    if pos.x ~= x then
-      turnTo(pos.x < x and 1 or 3)
-    else
-      turnTo(pos.z < z and 2 or 0)
+    local options = {}
+    if pos.x ~= x then options[#options + 1] = pos.x < x and 1 or 3 end
+    if pos.z ~= z then options[#options + 1] = pos.z < z and 2 or 0 end
+
+    local moved = false
+    for _, dir in ipairs(options) do
+      turnTo(dir)
+      local ok, why = moveForward()
+      if ok then moved = true break end
+      lastWhy = why or lastWhy
     end
 
-    local ok, why = moveForward()
-    if not ok then
-      if detours >= 6 then return false, why end
-      detours = detours + 1
+    if not moved then
+      if climbs >= 32 then return false, lastWhy end
+      climbs = climbs + 1
       local climbed, climbWhy = moveUp()
-      if not climbed then return false, climbWhy end
+      if not climbed then return false, climbWhy or lastWhy end
+    elseif climbs > 0 and pos.y > (floorY or pos.y) and not turtle.detectDown() then
+      if moveDown() then climbs = climbs - 1 end
     end
   end
   return true
@@ -196,10 +230,13 @@ end
 -- not wander through each other's columns at odd heights.
 local function goTo(x, y, z, travelY)
   if travelY then
-    local ok, why = goToY(travelY)
+    -- Only ever climb to the travel height, never drop to it: dropping
+    -- means burrowing down through whatever is underneath, which outside
+    -- the marked area is not ours to move.
+    local ok, why = goToY(math.max(travelY, pos.y))
     if not ok then return false, why end
   end
-  local ok, why = goToXZ(x, z)
+  local ok, why = goToXZ(x, z, travelY)
   if not ok then return false, why end
   return goToY(y)
 end
@@ -616,7 +653,8 @@ local function cmdWork()
   if not welcome then error("the coordinator did not answer my hello", 0) end
   if welcome.type == common.NACK then error(tostring(welcome.message), 0) end
   if welcome.version ~= common.VERSION then
-    error("version mismatch with the coordinator - run 'update all' on both", 0)
+    error(("version mismatch: I am %s, the coordinator is %s - run 'update all' on both")
+      :format(tostring(common.VERSION), tostring(welcome.version)), 0)
   end
 
   box = welcome.box
@@ -638,6 +676,8 @@ end
 
 local args = { ... }
 local command = (args[1] or "work"):lower()
+
+print(("flatten %s (turtle %d)"):format(common.VERSION, os.getComputerID()))
 
 if command == "mark1" then
   cmdMark(1)

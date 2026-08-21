@@ -61,6 +61,35 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a stale copy under the other spelling is removed ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local fetched = {}
+  local m = sim.addMachine({ id = 1, name = "pc", pos = { x = 0, y = 0, z = 0 },
+    shellRun = makeWget(fetched) })
+  sim.boot(m, "update", { "flatten" })
+  -- The exact trap: an old `flatten.lua` sitting where a fresh `flatten`
+  -- is about to land. The shell would find one of them and run it forever.
+  m.files = {
+    ["update"] = m.files["update"],
+    ["flatten"] = "-- last week",
+    ["flatten.lua"] = "-- last week, other spelling",
+  }
+  sim.run(60)
+
+  check(m.files["flatten.lua"] == nil, "the stale .lua copy is gone")
+  check(m.files["flatten"] ~= nil and m.files["flatten"]:find("downloaded", 1, true) ~= nil,
+    "the fresh copy replaced the old one")
+
+  local said = table.concat(m.log, "\n")
+  check(said:find("removed old flatten.lua", 1, true) ~= nil,
+    "it reported removing the stale copy rather than doing it silently")
+  check(said:find("now on version", 1, true) ~= nil,
+    "it printed the version now on disk")
+end
+
+--------------------------------------------------------------------------
 print("\n=== update flatten pulls common.lua too ===")
 --------------------------------------------------------------------------
 do

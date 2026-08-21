@@ -481,7 +481,8 @@ if not peripheral.find("inventory") then
 end
 
 restore()
-print("ComCraft coordinator " .. os.getComputerID() .. " ready.")
+print(("ComCraft coordinator %s (computer %d) ready.")
+  :format(common.VERSION, os.getComputerID()))
 cmdStatus()
 print("")
 

@@ -7,7 +7,12 @@ local common = {}
 
 common.PROTOCOL = "comcraft"
 common.HOSTNAME = "coordinator"
-common.VERSION  = 1
+
+-- Bump this on every change that goes out. Every program prints it on
+-- startup and the coordinator refuses to talk to a turtle running anything
+-- else, so a computer quietly still running last week's copy shows up
+-- straight away instead of behaving strangely for an hour.
+common.VERSION = "2026-08-22a"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
