@@ -191,3 +191,6 @@ if #failures > 0 then
   os.exit(1)
 end
 print("\nALL CHECKS PASSED")
+
+print(("\n  coordinator wrote its state file %d times, %d bytes total")
+  :format(sim.writes or 0, sim.bytesWritten or 0))

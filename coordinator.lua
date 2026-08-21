@@ -78,11 +78,56 @@ end
 -- Persistence
 --------------------------------------------------------------------------
 
-local function save()
+-- One character per column, in the order they were built. Writing the cell
+-- table out as tables cost about 67 bytes a column every time anything
+-- happened, which for a job of any size is most of what the coordinator
+-- would spend its day doing: an area of 900 columns would have written
+-- something like 175MB of state file over the course of clearing it.
+local MARKS = { free = ".", claimed = ".", done = "#", skipped = "x" }
+local FROM_MARK = { ["."] = "free", ["#"] = "done", ["x"] = "skipped" }
+
+local function encodeCells()
+  if not order then return nil end
+  local out = {}
+  for i, cell in ipairs(order) do
+    -- A column that was being worked when we went down is nobody's now.
+    out[i] = MARKS[cell.state] or "."
+  end
+  return table.concat(out)
+end
+
+local function applyCells(marks)
+  if not marks or not order then return end
+  for i, cell in ipairs(order) do
+    cell.state = FROM_MARK[marks:sub(i, i)] or "free"
+  end
+end
+
+local dirty, lastSaved = false, -math.huge
+
+local function writeNow()
+  dirty = false
+  lastSaved = os.clock()
   common.saveState(STATE_FILE, {
     corners = corners, box = box, depot = depot, running = running,
-    cells = cells,
+    marks = encodeCells(),
   })
+end
+
+-- Progress is written on a timer rather than after every column. Losing a
+-- few seconds of it to a crash only costs the time to dig through air
+-- again, which is cheaper than writing the whole job out over and over.
+local function save()
+  dirty = true
+end
+
+local SAVE_EVERY = 10
+
+local function saverLoop()
+  while true do
+    sleep(2)
+    if dirty and os.clock() - lastSaved >= SAVE_EVERY then writeNow() end
+  end
 end
 
 local function restore()
@@ -94,15 +139,7 @@ local function restore()
   running = saved.running or false
   if box then
     buildCells()
-    -- Put back what was already finished, but hand any cell that was
-    -- claimed when we went down back to the pool.
-    for key, cell in pairs(saved.cells or {}) do
-      local live = cells[key]
-      if live then
-        live.attempts = cell.attempts or 0
-        live.state = (cell.state == "claimed") and "free" or cell.state
-      end
-    end
+    applyCells(saved.marks)
   end
 end
 
@@ -223,7 +260,7 @@ local function handle(id, msg)
     else
       note = "now mark the opposite corner with 'flatten mark2'"
     end
-    save()
+    writeNow()
     print(("corner %d marked at %s"):format(msg.which, common.formatPos(msg.pos)))
     print(note)
     reply(id, { type = common.ACK, message = note }, msg.nonce)
@@ -427,14 +464,14 @@ local function cmdStart()
     print("note: no resupply chest found yet - the first turtle will look for one")
   end
   running = true
-  save()
+  writeNow()
   print("started - turtles will pick up work on their next request")
 end
 
 local function cmdClear()
   corners, box, cells, order, depot = {}, nil, nil, nil, nil
   running = false
-  save()
+  writeNow()
   print("area cleared - mark two new corners to set up another job")
 end
 
@@ -463,7 +500,7 @@ local function commandLoop()
     elseif verb == "start" then cmdStart()
     elseif verb == "stop" then
       running = false
-      save()
+      writeNow()
       print("stopped - turtles will idle after their current column")
     elseif verb == "list" then cmdList()
     elseif verb == "locate" then cmdLocate(rest)
@@ -537,7 +574,10 @@ print(("ComCraft coordinator %s (computer %d) ready.")
 cmdStatus()
 print("")
 
-parallel.waitForAny(commandLoop, rednetLoop, sweepLoop)
+parallel.waitForAny(commandLoop, rednetLoop, sweepLoop, saverLoop)
+
+-- Whatever has happened since the last timed write goes down now.
+writeNow()
 
 rednet.unhost(common.PROTOCOL, common.HOSTNAME)
 print("coordinator stopped")

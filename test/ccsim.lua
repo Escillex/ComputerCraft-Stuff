@@ -294,7 +294,11 @@ local function makeEnv(m)
       end
       local buffer = {}
       return {
-        write = function(s) buffer[#buffer + 1] = s end,
+        write = function(s)
+          buffer[#buffer + 1] = s
+          sim.bytesWritten = (sim.bytesWritten or 0) + #s
+          sim.writes = (sim.writes or 0) + 1
+        end,
         writeLine = function(s) buffer[#buffer + 1] = s .. "\n" end,
         close = function() m.files[p] = table.concat(buffer) end,
       }

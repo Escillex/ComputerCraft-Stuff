@@ -390,6 +390,73 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== the coordinator is restarted mid-job ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 109, minY = 60, maxY = 64, minZ = 200, maxZ = 209 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 110, name = "worker", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY + 1, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+
+  -- Stop handing out work partway, which pauses the job at a known point
+  -- rather than at whatever the clock happens to say.
+  sim.run(sim.now() + 4)
+  table.insert(coord.console, "stop")
+  sim.run(sim.now() + 25)
+
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  local before_log = table.concat(coord.log, "\n")
+  local doneBefore = tonumber(before_log:match("columns: (%d+) done")) or 0
+  local togoBefore = tonumber(before_log:match("(%d+) to go")) or 0
+  check(doneBefore > 0 and togoBefore > 0,
+    ("the job was genuinely part-done when we pulled the plug (%d done, %d to go)")
+      :format(doneBefore, togoBefore))
+
+  -- Pull the coordinator down and bring it straight back up. Its state file
+  -- is the only thing carried across.
+  coord.alive = false
+  local carried = coord.files["coordinator.state"]
+  check(carried ~= nil and carried:find("marks", 1, true) ~= nil,
+    "it had written the compact record of which columns are done")
+
+  local restarted = sim.addMachine({ id = 1, name = "coord2", pos = coordPos,
+    console = {}, adjacentChest = { list = function() return {} end } })
+  restarted.files["coordinator.state"] = carried
+  sim.boot(restarted, "coordinator", {})
+  sim.run(sim.now() + 10)
+  table.insert(restarted.console, "status")
+  sim.run(sim.now() + 10)
+
+  local log = table.concat(restarted.log, "\n")
+  local doneAfter = tonumber(log:match("columns: (%d+) done")) or 0
+  check(doneAfter == doneBefore,
+    ("it remembered exactly the finished columns (%d before, %d after)")
+      :format(doneBefore, doneAfter))
+  check(log:find("area: 10 x 5 x 10", 1, true) ~= nil, "and remembered the area")
+
+  -- And it can carry on: the rest of the area gets cleared without redoing
+  -- what was already done.
+  table.insert(restarted.console, "start")
+  sim.run(20000, function() return not w.alive end)
+  check(cleared(sim, box) == 0,
+    ("it finished the job after the restart (%d blocks left)"):format(cleared(sim, box)))
+  print(("        %d columns already done at restart, %d to go")
+    :format(doneBefore, togoBefore))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
