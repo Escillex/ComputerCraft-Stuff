@@ -46,9 +46,17 @@ do
   check(not m.crash, "update all ran cleanly" .. (m.crash and (": " .. tostring(m.crash)) or ""))
 
   -- These exact names are what the other scripts look for on disk.
-  for _, name in ipairs({ "common.lua", "flatten", "coordinator", "startup.lua", "reset" }) do
+  for _, name in ipairs({ "common.lua", "flatten", "coordinator", "startup.lua",
+                          "reset", "update" }) do
     check(m.files[name] ~= nil, "saved " .. name)
   end
+
+  -- A stale updater fetches through GitHub's cache, which makes every other
+  -- file it pulls suspect, so it has to keep itself current too.
+  check(m.files["update"]:find("downloaded from", 1, true) ~= nil,
+    "update replaced itself rather than leaving the old copy")
+  check(table.concat(m.log, "\n"):find("replaced itself", 1, true) ~= nil,
+    "it said the new updater runs from next time")
 
   local stray = {}
   for name in pairs(m.files) do
@@ -57,7 +65,7 @@ do
   check(#stray == 0, "no half-finished downloads left behind")
   check(m.files["flatten.lua"] == nil and m.files["common"] == nil,
     "no duplicate spellings that could shadow the real file")
-  check(#fetched == 5, ("fetched every target (%d)"):format(#fetched))
+  check(#fetched == 6, ("fetched every target (%d)"):format(#fetched))
 end
 
 --------------------------------------------------------------------------

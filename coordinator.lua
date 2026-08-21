@@ -29,6 +29,7 @@ local box               -- min/max on each axis, once both corners are in
 local cells, order      -- keyed by "x,z", plus a stable list for scanning
 local turtles = {}      -- id -> { pos, state, lastSeen, cell, fuel }
 local depot             -- chest/dock positions, once a turtle has found it
+local depotTypes = {}   -- block ids of whatever is attached, for turtles to look for
 local depotHolder       -- only one turtle uses the chest at a time
 local depotSince
 local running = false
@@ -203,6 +204,7 @@ local function handle(id, msg)
     reply(id, {
       type = common.WELCOME, version = common.VERSION,
       box = box, depot = depot, coordPos = myPos, running = running,
+      depotTypes = depotTypes,
     }, msg.nonce)
 
   elseif msg.type == common.MARK then
@@ -291,7 +293,8 @@ local function handle(id, msg)
       depotHolder, depotSince = id, os.clock()
       -- Pass on where the chest is, so a turtle that started before it was
       -- found does not go hunting for it all over again.
-      reply(id, { type = common.DEPOT_GRANT, depot = depot }, msg.nonce)
+      reply(id, { type = common.DEPOT_GRANT, depot = depot,
+        depotTypes = depotTypes }, msg.nonce)
     end
 
   elseif msg.type == common.DEPOT_RELEASE then
@@ -489,8 +492,43 @@ else
   print("!! no GPS signal - turtles will not be able to find the resupply chest")
 end
 
-if not peripheral.find("inventory") then
-  print("!! no chest next to me - put one against this computer for resupply")
+-- Work out what is actually attached, and what block it is. Anything that
+-- accepts items counts, vanilla or not - what matters is that turtles are
+-- told the block id, because they identify the depot by looking at it.
+local function findAttachedInventories()
+  local found = {}
+  for _, side in ipairs(peripheral.getNames()) do
+    local isInventory
+    if peripheral.hasType then
+      isInventory = peripheral.hasType(side, "inventory")
+    else
+      -- Older builds without hasType: fall back to asking for the methods
+      -- an inventory would have.
+      local methods = peripheral.getMethods(side) or {}
+      for _, method in ipairs(methods) do
+        if method == "pushItems" or method == "list" then isInventory = true break end
+      end
+    end
+    if isInventory then
+      found[#found + 1] = { side = side, type = peripheral.getType(side) or "unknown" }
+    end
+  end
+  return found
+end
+
+local attached = findAttachedInventories()
+depotTypes = {}  -- filled in below
+for _, inv in ipairs(attached) do
+  depotTypes[#depotTypes + 1] = inv.type
+  print(("resupply store: %s (on %s)"):format(inv.type, inv.side))
+end
+
+if #attached == 0 then
+  print("!! nothing next to me accepts items. put a container against this")
+  print("   computer. what I can see is:")
+  for _, side in ipairs(peripheral.getNames()) do
+    print(("     %s (%s)"):format(peripheral.getType(side) or "?", side))
+  end
 end
 
 restore()

@@ -8,12 +8,19 @@ local BASE = "https://raw.githubusercontent.com/Escillex/ComputerCraft-Stuff/mai
 -- `save` is the name the file must end up with. Programs get a bare name so
 -- you can type `flatten`; common.lua keeps its extension because the other
 -- scripts load it by filename.
+--
+-- `update` is in here too, so it keeps itself current. Overwriting the
+-- running program is safe: it is already loaded, and the new copy is what
+-- runs next time. Without this, a stale updater on one computer quietly
+-- fetches through whatever GitHub's cache is holding and every other file
+-- it pulls is suspect.
 local FILES = {
   common      = { source = "common.lua",      save = "common.lua" },
   flatten     = { source = "flatten.lua",     save = "flatten",    needs = { "common" } },
   coordinator = { source = "coordinator.lua", save = "coordinator", needs = { "common" } },
   startup     = { source = "startup.lua",     save = "startup.lua" },
   reset       = { source = "reset.lua",       save = "reset" },
+  update      = { source = "update.lua",      save = "update" },
 }
 
 local function targetNames()
@@ -111,3 +118,8 @@ if not allOk then error("one or more updates failed - see above", 0) end
 local version = installedVersion()
 print("now on version " .. (version or "unknown - common.lua missing"))
 print("every computer in the fleet must be on this same version")
+
+if done.update then
+  -- The copy that just ran is the old one; the new one is on disk.
+  print("update replaced itself - the new one runs from next time")
+end

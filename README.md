@@ -11,7 +11,9 @@ corners, and everything else is worked out from GPS.
 - A working **GPS satellite cluster** covering the dig site. Nothing here
   works without it.
 - A **computer** with a wireless modem for the coordinator.
-- A **chest** placed against that computer, with some coal in it.
+- A **container** placed against that computer, with some coal in it. Any
+  block that accepts items works - a chest, a barrel, or a modded store
+  such as a vault. The coordinator prints what it found on startup.
 - One or more **mining turtles** with wireless modems, and a little coal
   to get started.
 
@@ -56,7 +58,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22c (turtle 7)
+flatten 2026-08-22d (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -100,6 +102,19 @@ reports back and gets sent somewhere more useful.
 
 Only one turtle uses the chest at a time. Mined blocks go in it; fuel
 comes out of it.
+
+Turtles find the container by walking round the coordinator and looking at
+what is next to it. They know what to look for because the coordinator
+tells them the block id of whatever is actually attached, so modded storage
+works without this having heard of it - and never gets broken, wherever it
+is standing. If the coordinator says
+
+```
+!! nothing next to me accepts items
+```
+
+then the block you have put there does not expose an inventory to
+CC:Tweaked at all, and no container it cannot see can be used.
 
 Towards the end of a job the last few columns are too close together to
 share out, so most of the fleet has nothing to do. Rather than stand about

@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22c"
+common.VERSION = "2026-08-22d"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -98,11 +98,23 @@ function common.isProtected(name)
   return false
 end
 
+-- Only a fallback, for when the coordinator could not tell us what its own
+-- inventory is. Guessing from the name only ever works for vanilla.
 local DEPOT_BLOCKS = { "chest", "barrel", "shulker" }
 
-function common.looksLikeDepot(name)
+-- `known` is the block id the coordinator actually found attached to
+-- itself, which is the reliable answer: it covers any modded storage
+-- without this having to have heard of it.
+function common.looksLikeDepot(name, known)
   if not name then return false end
   name = name:lower()
+
+  if known then
+    for _, id in ipairs(known) do
+      if name == id:lower() then return true end
+    end
+  end
+
   for _, pattern in ipairs(DEPOT_BLOCKS) do
     if name:find(pattern, 1, true) then return true end
   end

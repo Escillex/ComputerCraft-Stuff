@@ -310,9 +310,31 @@ local function makeEnv(m)
   }
 
   ------------------------------------------------------------ peripheral
+  -- "back" is the modem; "left" is whatever container is against this
+  -- computer, if the scenario gave it one. m.storeType lets a test stand up
+  -- a modded block whose name this code has never heard of.
+  local function sides()
+    local list = { "back" }
+    if m.adjacentChest then list[#list + 1] = "left" end
+    return list
+  end
+
   env.peripheral = {
-    getNames = function() return { "back" } end,
-    getType = function(side) return side == "back" and "modem" or nil end,
+    getNames = sides,
+    getType = function(side)
+      if side == "back" then return "modem" end
+      if side == "left" and m.adjacentChest then return m.storeType or "minecraft:chest" end
+      return nil
+    end,
+    hasType = function(side, kind)
+      if side == "back" then return kind == "modem" or kind == "peripheral" end
+      if side == "left" and m.adjacentChest then return kind == "inventory" end
+      return false
+    end,
+    getMethods = function(side)
+      if side == "left" and m.adjacentChest then return { "list", "pushItems" } end
+      return {}
+    end,
     call = function(side, method)
       if method == "isWireless" then return true end
     end,
@@ -602,6 +624,7 @@ function sim.addMachine(opts)
     slots = opts.slots,
     fuel = opts.fuel,
     adjacentChest = opts.adjacentChest,
+    storeType = opts.storeType,
     shellRun = opts.shellRun,
     moves = 0,
     digs = 0,

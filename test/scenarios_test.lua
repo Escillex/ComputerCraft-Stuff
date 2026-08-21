@@ -209,13 +209,69 @@ do
 
   check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
   -- It only counts as going round if it actually got to the chest.
-  check(table.concat(coord.log, "\n"):find("chest found", 1, true) ~= nil,
+  check(table.concat(coord.log, "\n"):find("resupply chest found at", 1, true) ~= nil,
     "it found its way over to the chest")
   check(broken == 0, ("the wall was left standing (%d of %d blocks broken)")
     :format(broken, #wall))
   check(cleared(sim, box) == 0,
     ("it still cleared the marked area (%d blocks left)"):format(cleared(sim, box)))
   print(("        %d moves, %d digs"):format(w.moves, w.digs))
+end
+
+--------------------------------------------------------------------------
+print("\n=== a modded store this code has never heard of ===")
+--------------------------------------------------------------------------
+do
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Not a chest, a barrel or a shulker: a block whose name matches nothing
+  -- this code knows. All the turtle has to go on is what the coordinator
+  -- says is attached to it.
+  local VAULT = "somemod:steel_vault"
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, VAULT)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end }, storeType = VAULT })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Send it out already full, so its very first act has to be emptying
+  -- itself into the vault.
+  local loaded = { [1] = { name = "minecraft:coal", count = 8 } }
+  for slot = 2, 16 do
+    loaded[slot] = { name = "minecraft:cobblestone_" .. slot, count = 64 }
+  end
+
+  local w = sim.addMachine({ id = 80, name = "modded", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY + 1, z = box.minZ }, facing = 3,
+    slots = loaded, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find(VAULT, 1, true) ~= nil,
+    "the coordinator named the block it found attached")
+  check(log:find("resupply chest found at", 1, true) ~= nil,
+    "the turtle recognised the vault as the place to resupply")
+  check(sim.getBlock(coordPos.x + 1, coordPos.y, coordPos.z) == VAULT,
+    "and did not break it")
+
+  local delivered = 0
+  for _, slot in ipairs(chest.slots) do
+    if slot.name ~= "minecraft:coal" then delivered = delivered + slot.count end
+  end
+  check(delivered > 0, ("it put mined blocks into the vault (%d items)"):format(delivered))
+  check(cleared(sim, box) == 0, "and cleared the area")
+
+  for _, line in ipairs(coord.log) do
+    if line:find("resupply store") or line:find("chest found") then
+      print("        " .. line)
+    end
+  end
 end
 
 --------------------------------------------------------------------------

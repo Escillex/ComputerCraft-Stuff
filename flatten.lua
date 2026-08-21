@@ -30,6 +30,7 @@ local STEP_WAITS = 10         -- of those, how long to wait on another turtle
 
 local pos, facing             -- absolute world position and facing index
 local box, depot, coordId, coordPos
+local depotTypes = {}   -- block ids the coordinator says its store is
 local myCell
 local state = "starting"
 
@@ -118,11 +119,34 @@ end
 -- room directly over it, so a turtle can drop in and climb out, while
 -- everything around the site - the way to the chest included - is left
 -- exactly as it was found.
+local function samePlace(p, x, y, z)
+  return p ~= nil and p.x == x and p.y == y and p.z == z
+end
+
 local function mayBreakAt(x, y, z)
   if not box then return false end
+  -- The coordinator and its store are off limits wherever they stand, even
+  -- inside the marked area. Their block ids are not something this script
+  -- can be expected to recognise on sight - a modded store is just a block
+  -- with an unfamiliar name - so go by where they are instead.
+  if samePlace(coordPos, x, y, z) then return false end
+  if depot and samePlace(depot.chest, x, y, z) then return false end
+
   return x >= box.minX and x <= box.maxX
      and z >= box.minZ and z <= box.maxZ
      and y >= box.minY
+end
+
+-- Never break anything of the same kind as the coordinator's store either,
+-- so a second vault sitting in the dig area is left alone as well.
+local function isProtectedBlock(name)
+  if common.isProtected(name) then return true end
+  if not name then return false end
+  name = name:lower()
+  for _, id in ipairs(depotTypes) do
+    if name == id:lower() then return true end
+  end
+  return false
 end
 
 -- Move one block, clearing the way if what is there is safe to break.
@@ -144,7 +168,7 @@ local function stepDir(dir)
       waited = waited + 1
       if waited > STEP_WAITS then return false, info.name end
       sleep(1)
-    elseif common.isProtected(info.name) then
+    elseif isProtectedBlock(info.name) then
       -- A chest or a computer is never going to move, so say so at once
       -- and let the caller go round it.
       return false, info.name
@@ -279,7 +303,7 @@ local function measureFacing()
         if turtle.forward() then return true end
       elseif allowDig then
         local _, info = turtle.inspect()
-        if not common.isProtected(info.name) and turtle.dig() then
+        if not isProtectedBlock(info.name) and turtle.dig() then
           if turtle.forward() then return true end
         end
       end
@@ -360,7 +384,7 @@ local function probeDepot()
       local inward = (dir + 2) % 4
       turnTo(inward)
       local present, info = turtle.inspect()
-      if present and common.looksLikeDepot(info.name) then
+      if present and common.looksLikeDepot(info.name, depotTypes) then
         return {
           chest  = { x = coordPos.x + f.dx, y = coordPos.y, z = coordPos.z + f.dz },
           dock   = { x = standX, y = coordPos.y, z = standZ },
@@ -464,6 +488,7 @@ local function depotRun()
   local grant = claimDepot()
   if not grant then return false, "the depot never came free" end
 
+  depotTypes = grant.depotTypes or depotTypes
   if not depot and grant.depot then
     depot = grant.depot
     saveLocal()
@@ -688,6 +713,7 @@ local function cmdWork()
   box = welcome.box
   depot = welcome.depot or depot
   coordPos = welcome.coordPos
+  depotTypes = welcome.depotTypes or depotTypes
   if not box then
     error("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle", 0)
   end
