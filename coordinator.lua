@@ -51,6 +51,15 @@ local function readCount(promptText)
   end
 end
 
+local function printHelp()
+  print("Commands:")
+  print("  list              - show region assignments and chest queue status")
+  print("  free <region#>    - release a region so the next new registrant gets it")
+  print("  ping              - ask every connected turtle for a LIVE gps.locate() position")
+  print("  reset <turtleId>|all - ping turtle(s) AND correct their tracked position to match")
+  print("  help              - show this again")
+end
+
 local args = { ... }
 
 if args[1] and (tostring(args[1]):lower() == "help" or tostring(args[1]):lower() == "--help") then
@@ -62,7 +71,8 @@ if args[1] and (tostring(args[1]):lower() == "help" or tostring(args[1]):lower()
   print("chestX/Y/Z is the resupply park spot's coordinates; chestDir is a compass direction")
   print("(north/south/east/west/up/down, or n/s/e/w/u/d) for which way the chest is from there.")
   print()
-  print("Once running, type 'help' at its prompt for admin commands (list/free/ping/reset).")
+  print("Once running, these admin commands are available at its own prompt:")
+  printHelp()
   return
 end
 
@@ -233,15 +243,6 @@ local function rednetLoop()
       end
     end
   end
-end
-
-local function printHelp()
-  print("Commands:")
-  print("  list              - show region assignments and chest queue status")
-  print("  free <region#>    - release a region so the next new registrant gets it")
-  print("  ping              - ask every connected turtle for a LIVE gps.locate() position")
-  print("  reset <turtleId>|all - ping turtle(s) AND correct their tracked position to match")
-  print("  help              - show this again")
 end
 
 local function commandLoop()
