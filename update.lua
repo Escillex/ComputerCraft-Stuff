@@ -23,6 +23,15 @@ local function targetNames()
   return table.concat(names, ", ")
 end
 
+-- GitHub serves raw files through a cache that can hold a stale copy for
+-- several minutes after a change is pushed. A unique query string each time
+-- gets us the real file rather than whatever the cache happens to be
+-- holding, which otherwise looks exactly like an update that did nothing.
+local function freshUrl(source)
+  local stamp = (os.epoch and os.epoch("utc")) or os.time()
+  return BASE .. source .. "?nocache=" .. tostring(stamp)
+end
+
 local function fetch(name)
   local entry = FILES[name]
   local temp = name .. ".download"
@@ -30,7 +39,7 @@ local function fetch(name)
   print("updating " .. name .. "...")
   if fs.exists(temp) then fs.delete(temp) end
 
-  if not shell.run("wget", BASE .. entry.source, temp) or not fs.exists(temp) then
+  if not shell.run("wget", freshUrl(entry.source), temp) or not fs.exists(temp) then
     if fs.exists(temp) then fs.delete(temp) end
     print(name .. " FAILED - check the network and HTTP settings")
     return false

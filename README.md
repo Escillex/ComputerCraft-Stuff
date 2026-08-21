@@ -56,11 +56,15 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22b (turtle 7)
+flatten 2026-08-22c (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
 `update all` on it again.
+
+`update` asks for each file with a one-off query string, because GitHub
+serves raw files through a cache that can hand back a copy several minutes
+old - which looks exactly like an update that did nothing.
 
 ## Coordinator commands
 
