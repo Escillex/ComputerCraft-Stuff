@@ -343,10 +343,19 @@ local function handle(id, msg)
     print(("  it is at %s"):format(common.formatPos(msg.pos or entry.pos)))
 
   elseif msg.type == common.DEPOT_FOUND then
-    if not depot and msg.depot then
+    -- A turtle only says this straight after going and looking, so take its
+    -- word over what is on file. A docking spot that stopped working has to
+    -- be replaceable, or every turtle keeps being sent to the same dead end.
+    if msg.depot then
+      local moved = not depot or not depot.dock
+        or depot.dock.x ~= msg.depot.dock.x
+        or depot.dock.y ~= msg.depot.dock.y
+        or depot.dock.z ~= msg.depot.dock.z
       depot = msg.depot
-      save()
-      print("resupply store found at " .. common.formatPos(depot.store))
+      writeNow()
+      if moved then
+        print("resupply store found at " .. common.formatPos(depot.store))
+      end
     end
   end
 end

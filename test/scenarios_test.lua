@@ -457,6 +457,160 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a tall area with the store down at ground level ===")
+--------------------------------------------------------------------------
+do
+  -- The shape of a real job: the marked area reaches many blocks above the
+  -- coordinator, while the store sits on the ground beside it. Coming down
+  -- from the top of the area to the roof of the store is a long way, and a
+  -- descent that gives up short of it never finds the store at all.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 63, maxY = 81, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Clear away the default chest and computer, which buildWorld puts level
+  -- with the top of the area, and rebuild them on the ground instead. Left
+  -- where they were they would sit in the column the turtle descends.
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, nil)
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+
+  -- The coordinator and its store on the ground, well below the top of the
+  -- area, the store three blocks tall as a Create vault would be. Nothing
+  -- above it but sky.
+  coordPos.y = 63
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+
+  -- A Create item vault as they actually come: three tall, three across,
+  -- and as long as you like. Three wide is what makes standing beside it
+  -- and looking sideways hopeless - two blocks out from the coordinator is
+  -- still inside the structure - so the roof is the only way in.
+  local VAULT = "create:item_vault"
+  local vaultBlocks = {}
+  for dx = 1, 4 do
+    for dy = 0, 2 do
+      for dz = -1, 1 do
+        local p = { x = coordPos.x + dx, y = coordPos.y + dy, z = coordPos.z + dz }
+        sim.setBlock(p.x, p.y, p.z, VAULT)
+        sim.linkChest(p.x, p.y, p.z, chest)
+        vaultBlocks[#vaultBlocks + 1] = p
+      end
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end }, storeType = VAULT })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local loaded = { [1] = { name = "minecraft:coal", count = 12 } }
+  for slot = 2, 16 do
+    loaded[slot] = { name = "minecraft:spoil_" .. slot, count = 64 }
+  end
+  local w = sim.addMachine({ id = 120, name = "tall", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = loaded, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("resupply store found at", 1, true) ~= nil,
+    ("it reached down %d blocks to find the store"):format(box.maxY - coordPos.y))
+
+  local delivered = 0
+  for _, slot in ipairs(chest.slots) do
+    if slot.name ~= "minecraft:coal" then delivered = delivered + slot.count end
+  end
+  check(delivered > 0, ("it emptied itself into the store (%d items)"):format(delivered))
+
+  local broken = 0
+  for _, p in ipairs(vaultBlocks) do
+    if sim.getBlock(p.x, p.y, p.z) ~= VAULT then broken = broken + 1 end
+  end
+  check(broken == 0, ("the store is intact (%d of %d broken)"):format(broken, #vaultBlocks))
+
+  for _, line in ipairs(coord.log) do
+    if line:find("resupply store found") then print("        " .. line) end
+  end
+end
+
+--------------------------------------------------------------------------
+print("\n=== a docking spot that has stopped working ===")
+--------------------------------------------------------------------------
+do
+  -- A turtle carrying a note that says the way in is beside the store, from
+  -- back when that was how it was found. Against a vault three blocks wide
+  -- that spot is inside the structure, so it can never be stood on. The
+  -- turtle has to notice, throw the note away and go and look again rather
+  -- than reporting the same failure forever.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 63, maxY = 70, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, nil)
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+  coordPos.y = 63
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+
+  local VAULT = "create:item_vault"
+  for dx = 1, 3 do
+    for dy = 0, 2 do
+      for dz = -1, 1 do
+        local p = { x = coordPos.x + dx, y = coordPos.y + dy, z = coordPos.z + dz }
+        sim.setBlock(p.x, p.y, p.z, VAULT)
+        sim.linkChest(p.x, p.y, p.z, chest)
+      end
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end }, storeType = VAULT })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local loaded = { [1] = { name = "minecraft:coal", count = 12 } }
+  for slot = 2, 16 do
+    loaded[slot] = { name = "minecraft:spoil_" .. slot, count = 64 }
+  end
+  local w = sim.addMachine({ id = 130, name = "stale", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = loaded, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  -- The dock two blocks out from the coordinator: solidly inside the vault.
+  w.files["flatten.state"] = ([[{
+    pos = { x = %d, y = %d, z = %d, },
+    facing = 3,
+    depot = {
+      store = { x = %d, y = %d, z = %d, },
+      dock = { x = %d, y = %d, z = %d, },
+      dir = "forward",
+      facing = 3,
+    },
+  }]]):format(box.maxX + 1, box.maxY, box.minZ,
+              coordPos.x + 1, coordPos.y, coordPos.z,
+              coordPos.x + 2, coordPos.y, coordPos.z)
+
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local said = table.concat(w.log, "\n")
+  check(said:find("will look again", 1, true) ~= nil,
+    "it worked out its note was no good")
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    "and found a way in that works")
+
+  local delivered = 0
+  for _, slot in ipairs(chest.slots) do
+    if slot.name ~= "minecraft:coal" then delivered = delivered + slot.count end
+  end
+  check(delivered > 0, ("it got its load into the store (%d items)"):format(delivered))
+  check(cleared(sim, box) == 0, "and finished the job")
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

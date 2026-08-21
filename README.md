@@ -58,7 +58,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22g (turtle 7)
+flatten 2026-08-22h (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -110,12 +110,18 @@ works without this having heard of it - and never gets broken, wherever it
 is standing.
 
 They settle on **top** of the container and drop items down into it, which
-is what makes a multiblock store work: a Create item vault is several
-blocks across and several tall, so there is no single "the block next to
-the coordinator" to stand beside, and any block of it will take the items
-anyway. Every block of such a store is protected, not just the one touching
-the computer - breaking one would take the whole structure apart. A single
-chest under a low roof is still approached from the side instead.
+is what makes a multiblock store work: a Create item vault is three blocks
+tall and three across, so two blocks out from the coordinator is still
+inside the structure and there is nowhere to stand beside it. Any block of
+it takes the items, so the roof will do. **Leave the sky above your store
+clear** - that is the way in. A single chest under a low roof is still
+approached from the side instead.
+
+Every block of such a store is protected, not just the one touching the
+computer: breaking any one of them takes the whole structure apart. If a
+docking spot ever stops working - the store was rebuilt, or moved - the
+turtle throws the old one away and goes looking again rather than reporting
+the same failure forever.
 
 If the coordinator says
 

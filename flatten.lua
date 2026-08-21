@@ -396,10 +396,15 @@ local LOOK = { forward = turtle.inspect, down = turtle.inspectDown, up = turtle.
 -- out from the coordinator is quite likely to be more of the store itself.
 -- Any block of a multiblock will take the items, so landing on the roof of
 -- it is enough.
-local function dockOnTopOf(x, z, ceiling)
-  if not goTo(x, ceiling, z, ceiling) then return nil end
+-- Comes down until there is something underfoot. The floor is worked out
+-- from where the coordinator is standing rather than being a fixed number
+-- of blocks: the drop from the top of the marked area down to a store at
+-- ground level is as deep as the area is tall, and a store one block below
+-- where the descent gives up is a store that is never found.
+local function dockOnTopOf(x, z, ceiling, floor)
+  if not goTo(x, ceiling, z, ceiling) then return nil, "could not get above it" end
 
-  for _ = 1, 16 do
+  while pos.y > floor do
     if turtle.detectDown() then break end
     if not moveDown() then break end
   end
@@ -412,7 +417,7 @@ local function dockOnTopOf(x, z, ceiling)
       dir   = "down",
     }
   end
-  return nil
+  return nil, ("%s at y=%d"):format(present and info.name or "nothing", pos.y - 1)
 end
 
 -- The older way: stand two blocks out and look back at the coordinator.
@@ -443,12 +448,20 @@ local function probeDepot()
   if not coordPos then return nil end
   local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
   local ceiling = math.max(travelY, coordPos.y + 8)
+  -- Far enough down to stand on a store sunk a block into the ground.
+  local floor = coordPos.y - 1
 
   print("looking for the resupply store next to the coordinator...")
   for dir = 0, 3 do
     local f = common.FACINGS[dir]
-    local found = dockOnTopOf(coordPos.x + f.dx, coordPos.z + f.dz, ceiling)
-      or dockBesideOf(coordPos, dir, travelY)
+    local found, saw = dockOnTopOf(coordPos.x + f.dx, coordPos.z + f.dz, ceiling, floor)
+    if found then return found end
+
+    -- Say what was actually there. Guessing at why a probe came back
+    -- empty-handed is the slowest way to work out what is in the world.
+    print(("  %s of it: %s"):format(common.FACINGS[dir].name, tostring(saw)))
+
+    found = dockBesideOf(coordPos, dir, travelY)
     if found then return found end
   end
   return nil
@@ -571,6 +584,16 @@ local function depotRun()
   if depot then
     state = "resupplying"
     ok, why = useDepot()
+
+    -- A docking spot that cannot be reached any more is worse than none at
+    -- all, because it will go on failing forever. Forget it and look again
+    -- next time: the store may have been rebuilt, or the note may have come
+    -- from a version that picked its spot differently.
+    if not ok then
+      print("cannot get to the docking spot any more - will look again")
+      depot = nil
+      saveLocal()
+    end
   else
     ok, why = false, "no container next to the coordinator"
   end
