@@ -717,35 +717,19 @@ local function claimDepot()
   return nil
 end
 
--- The altitude the way to the store worked at last time. Nothing outside
--- the marked area may be broken, so getting there is entirely a matter of
--- finding a height that clears whatever is in between - and once one is
--- known it is worth starting from it rather than rediscovering it on every
--- trip.
-local knownLift = 0
-local LIFTS = { 0, 3, 8, 16, 30 }
-
+-- Nothing outside the marked area may be broken, so getting to the store is
+-- entirely a matter of going round what is in the way. There is nothing to
+-- remember about the route: the walk climbs exactly when it is blocked and
+-- gives the height straight back once there is floor under it, so it hugs
+-- whatever is there rather than casting about for a height that works.
+--
+-- An earlier version tried a ladder of heights and remembered the one that
+-- worked, and the fleet shared it. Measured over every job here, including
+-- one with a wall twenty-two blocks above the area, it never once needed
+-- anything but the first - so it was carrying a memory of nothing.
 local function goToDock()
-  local base = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
-  local why
-
-  -- Whatever worked last time first, then climb higher and higher. A route
-  -- to the store matters more than a few wasted moves: a turtle that cannot
-  -- reach it stops being useful entirely.
-  local tried = { knownLift }
-  for _, lift in ipairs(LIFTS) do
-    if lift ~= knownLift then tried[#tried + 1] = lift end
-  end
-
-  for _, lift in ipairs(tried) do
-    local ok
-    ok, why = goTo(depot.dock.x, depot.dock.y, depot.dock.z, base + lift)
-    if ok then
-      knownLift = lift
-      return true
-    end
-  end
-  return false, why
+  local travelY = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
+  return goTo(depot.dock.x, depot.dock.y, depot.dock.z, travelY)
 end
 
 local function useDepot()

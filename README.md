@@ -190,8 +190,14 @@ you - is waited on for a good ten seconds before the turtle so much as
 touches it, and only something that has not moved at all in that time gets
 hit. A few seconds of digging is not worth killing a citizen over.
 
-Only one turtle uses the chest at a time. Mined blocks go in it; fuel
-comes out of it.
+Only one turtle uses the chest at a time, and it asks before it sets off
+rather than on arrival - so only the one with its turn is ever walking
+there or standing at it. The rest wait where they are, shown as `queuing
+for the depot`. Mined blocks go in it; fuel comes out of it.
+
+Put your turtles down **near the store** when you start them. The first
+thing they do is find it, and starting beside it is the shortest version of
+that errand.
 
 Turtles find the container by walking round the coordinator and looking at
 what is next to it. They know what to look for because the coordinator
