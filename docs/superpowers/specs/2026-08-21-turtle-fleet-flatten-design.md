@@ -284,17 +284,31 @@ second costs infinite water everywhere in the world.
 Not built. Written down because it took a long conversation to arrive at
 and the reasoning is not obvious from any of the parts.
 
-**Plug every source and leave the block there.** Removing sources in any
-order cannot drain a body of water: a cell is re-sourced by two or more
-orthogonal neighbours, and every perimeter cell of a solid pool has at
-least two - a corner has exactly two, which is the threshold. Diagonals do
-not count, and that does not help. Only a block that stays breaks the rule,
-so plugging is the whole mechanism and the plugs do not come back out.
+**Plug every source, and take the plugs out only once they all are.**
+Removing sources one at a time in any order cannot drain a body of water: a
+cell is re-sourced by two or more orthogonal neighbours, and every
+perimeter cell of a solid pool has at least two - a corner has exactly two,
+which is the threshold. Diagonals do not count, and that does not help.
+Only a block that stays breaks the rule.
+
+What today's drain gets wrong is not the plugging, it is doing the plug and
+the unplug one block at a time, while the neighbours are still wet. Split
+into two passes over the whole body it works, and drain keeps its promise
+of leaving everything as it was: by the time anything is dug back out there
+are no sources anywhere to re-source it.
 
 **Sources only, not flows.** Once every source is solid the flows drain
 themselves, so the cost is the source volume rather than the fluid volume,
 and far less than the volume of the marked box. A lava puddle costs a
 handful of blocks; a lake costs the lake.
+
+**Three phases, in this order across the whole area:**
+
+1. down through the fluid to the bottom of the column - moving, not
+   digging, since drain breaks nothing;
+2. up, laying a plug into each source beneath, so the column ends solid;
+3. once every column is through phase 2, down again digging the plugs back
+   out, top to bottom.
 
 **Down the column, then up laying blocks** - the motion fill already uses,
 except that going down breaks nothing: it swims down through the fluid to
@@ -322,10 +336,13 @@ It terminates: every plug turns a fluid block solid for good, so the wet
 volume strictly shrinks and the sweep-until-a-pass-finds-nothing loop must
 end.
 
-Drain then means "your material where the fluid was" rather than
-"everything as it was, minus the fluid" - which removes the need to
-remember which blocks were plugs in order to take them out again. `mode
-clear` afterwards empties the area if that is what is wanted.
+**Phase 3 has to be told which blocks were plugs.** It cannot dig anything
+made of the plug material, or it takes out cobble that was already there
+and breaks the one promise drain makes. So the coordinator remembers, per
+column, which Y levels were plugged, and no column starts phase 3 until the
+last one has finished phase 2. That per-column list is the only new state
+in any of this, and it is what makes it a piece of work rather than a
+tweak: the saved file keeps one character per column today.
 
 **Prerequisite: the simulator has to model fluid first.** It currently has
 none - no spread, no levels, no re-sourcing - so a working drain and a
