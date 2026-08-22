@@ -645,6 +645,9 @@ end
 -- moved, the coordinator gets moved, the note was written by a version
 -- that looked further afield than this one does.
 local function forgetDistantDepot()
+  -- Not knowing where the coordinator is - it has no GPS signal - is no
+  -- reason to throw away a good note. Without a position there is nothing
+  -- to measure against, so leave it alone.
   if not depot or not coordPos then return end
   local store = depot.store
   if nearCoordinator(store.x, store.y, store.z) then return end

@@ -2404,6 +2404,56 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== recalibrate looks at the world again ===")
+--------------------------------------------------------------------------
+do
+  -- Everything the coordinator knows about the world round it is read once
+  -- at startup and then believed for the rest of the session. Move the
+  -- store and it is wrong, and there is no way to tell it so short of
+  -- restarting. 'recalibrate' is that way, and it complains rather than
+  -- fixing things quietly, because each of these stops the job.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 62, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos = buildWorld(sim, box)
+
+  -- Started with no container at all.
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {} })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  table.insert(coord.console, "recalibrate")
+  sim.run(sim.now() + 20)
+  local said = table.concat(coord.log, "\n")
+  check(said:find("nothing next to me accepts items", 1, true) ~= nil,
+    "with nothing attached it says so")
+  check(said:match("(%d+) thing%(s%) to put right") ~= nil,
+    "and counts what is wrong rather than saying nothing")
+
+  -- Now put one there, the way you would in the world, and tell it.
+  local before = #coord.log
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  coord.adjacentChest = { list = function() return {} end }
+  table.insert(coord.console, "recalibrate")
+  sim.run(sim.now() + 20)
+
+  local after = {}
+  for i = before + 1, #coord.log do after[#after + 1] = coord.log[i] end
+  local now = table.concat(after, "\n")
+  check(now:find("resupply store:", 1, true) ~= nil,
+    "once one is there it finds it without a restart")
+  check(now:find("all clear", 1, true) ~= nil,
+    "and says so plainly")
+
+  -- And having said all clear, it will actually start.
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 20)
+  check(table.concat(coord.log, "\n"):find("started", 1, true) ~= nil,
+    "and the job can be started")
+end
+
+--------------------------------------------------------------------------
 print("\n=== a note pointing at a store that is not there ===")
 --------------------------------------------------------------------------
 do
@@ -2627,10 +2677,23 @@ do
   sim.run(sim.now() + 300)
 
   local log = table.concat(coord.log, "\n")
-  check(log:find("no container next to the coordinator", 1, true) ~= nil,
-    "it reported that there is no store to be found")
   check(log:find("nothing next to me accepts items", 1, true) ~= nil,
-    "and the coordinator said so on startup too")
+    "the coordinator saw for itself that nothing is attached")
+
+  -- It can see this without asking anybody, so it must not start. Sending a
+  -- turtle to look for a store that cannot be there is the errand that puts
+  -- one over the horizon.
+  check(log:find("no point starting", 1, true) ~= nil,
+    "and refused to start rather than sending somebody to look")
+  check(log:find("is going to find the store", 1, true) == nil,
+    "so nobody was sent to find it")
+  check(log:find("run 'recalibrate'", 1, true) ~= nil,
+    "and it said how to tell it once you have put one there")
+
+  -- The turtle stays put: no work was handed out, so there is nothing to go
+  -- looking for.
+  local out = math.max(math.abs(w.pos.x - coordPos.x), math.abs(w.pos.z - coordPos.z))
+  check(out < 10, ("the turtle stayed put (%d blocks out)"):format(out))
 end
 
 --------------------------------------------------------------------------

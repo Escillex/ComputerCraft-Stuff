@@ -46,6 +46,56 @@ local depotSeekerSince
 local SEEK_TIMEOUT = 90 -- before giving the errand to somebody else
 local running = false
 local myPos
+local attached = {}     -- the inventories bolted to this computer right now
+
+-- Work out what is actually attached, and what block it is. Anything that
+-- accepts items counts, vanilla or not - what matters is that turtles are
+-- told the block id, because they identify the depot by looking at it.
+local function findAttachedInventories()
+  local found = {}
+  for _, side in ipairs(peripheral.getNames()) do
+    local isInventory
+    if peripheral.hasType then
+      isInventory = peripheral.hasType(side, "inventory")
+    else
+      -- Older builds without hasType: fall back to asking for the methods
+      -- an inventory would have.
+      local methods = peripheral.getMethods(side) or {}
+      for _, method in ipairs(methods) do
+        if method == "pushItems" or method == "list" then isInventory = true break end
+      end
+    end
+    if isInventory then
+      found[#found + 1] = { side = side, type = peripheral.getType(side) or "unknown" }
+    end
+  end
+  return found
+end
+
+-- Re-read what is attached. Worth doing on demand as well as at startup:
+-- containers get broken and rebuilt, and a coordinator that is still going
+-- on what it saw an hour ago sends turtles to look for something that is
+-- not there.
+local function scanAttached()
+  attached = findAttachedInventories()
+  depotTypes = {}
+  for _, inv in ipairs(attached) do depotTypes[#depotTypes + 1] = inv.type end
+  return attached
+end
+
+local function reportAttached(found)
+  for _, inv in ipairs(found) do
+    print(("resupply store: %s (on %s)"):format(inv.type, inv.side))
+  end
+  if #found > 0 then return true end
+  print("!! nothing next to me accepts items. put a container against this")
+  print("   computer. what I can see is:")
+  for _, side in ipairs(peripheral.getNames()) do
+    print(("     %s (%s)"):format(peripheral.getType(side) or "?", side))
+  end
+  return false
+end
+
 
 --------------------------------------------------------------------------
 -- The area
@@ -583,7 +633,7 @@ local function handle(id, msg)
     -- A turtle only says this straight after going and looking, so take its
     -- word over what is on file. A docking spot that stopped working has to
     -- be replaceable, or every turtle keeps being sent to the same dead end.
-    if msg.depot and msg.depot.store and not besideMe(msg.depot.store) then
+    if myPos and msg.depot and msg.depot.store and not besideMe(msg.depot.store) then
       -- Not next to me, so it is not my store. Believing it would put this
       -- on file and hand it to every turtle that joins from now on, and
       -- each of them would walk to it.
@@ -725,6 +775,16 @@ local function cmdStart()
     print("mark the area first: 'flatten mark1' and 'flatten mark2' on a turtle")
     return
   end
+
+  -- I can see for myself whether anything is bolted to me, so there is no
+  -- excuse for sending a turtle off to look for a store that cannot be
+  -- there. That errand is what puts one over the horizon.
+  if #scanAttached() == 0 then
+    print("!! nothing next to me accepts items, so there is nothing for the")
+    print("   turtles to resupply from and no point starting.")
+    print("   put a container against this computer and run 'recalibrate'.")
+    return
+  end
   if mode == "fill" then
     if not material then
       print("nothing to fill with - try: material minecraft:cobblestone")
@@ -844,6 +904,79 @@ local function cmdClear()
   print("area cleared - mark two new corners to set up another job")
 end
 
+-- Look at the world again and say what is actually true now. Everything
+-- here is read at startup and then believed for the rest of the session,
+-- which is wrong the moment you move something - so this is the way to say
+-- "you have gone stale, go and look".
+--
+-- It complains rather than fixing quietly. Something being wrong here is
+-- something you want to know about, since every one of them stops the job.
+local function cmdRecalibrate()
+  local faults = 0
+
+  local x, y, z = gps.locate(3)
+  if x then
+    local was = myPos
+    myPos = { x = common.round(x), y = common.round(y), z = common.round(z) }
+    if was and (was.x ~= myPos.x or was.y ~= myPos.y or was.z ~= myPos.z) then
+      print(("moved: I was at %s, I am at %s")
+        :format(common.formatPos(was), common.formatPos(myPos)))
+    else
+      print("position: " .. common.formatPos(myPos))
+    end
+  else
+    faults = faults + 1
+    myPos = nil
+    print("!! no GPS signal. turtles cannot be told where I am, so they")
+    print("   cannot find the store. check your GPS satellites.")
+  end
+
+  if not reportAttached(scanAttached()) then faults = faults + 1 end
+
+  -- The note is only worth keeping if it still describes something here.
+  if depot and depot.store then
+    if not myPos then
+      print("keeping the noted store at " .. common.formatPos(depot.store)
+        .. " - no position to check it against")
+    elseif besideMe(depot.store) then
+      print("noted store still stands at " .. common.formatPos(depot.store))
+    else
+      print(("forgetting the noted store at %s - it is not next to me")
+        :format(common.formatPos(depot.store)))
+      depot, spine = nil, nil
+      depotSeeker, depotSeekerSince = nil, nil
+      writeNow()
+    end
+  elseif #attached > 0 then
+    print("no store found yet - the first turtle to need it will go and look")
+  end
+
+  if box then
+    refreshSpine()
+  else
+    faults = faults + 1
+    print("!! no area marked. run 'flatten mark1' and 'flatten mark2'.")
+  end
+
+  local stale = {}
+  for id, entry in pairs(turtles) do
+    if entry.version and entry.version ~= common.VERSION then
+      stale[#stale + 1] = ("%d (%s)"):format(id, entry.version)
+    end
+  end
+  if #stale > 0 then
+    faults = faults + 1
+    print("!! on the wrong version: " .. table.concat(stale, ", "))
+    print("   run 'update all' on each and reboot it")
+  end
+
+  if faults == 0 then
+    print("all clear.")
+  else
+    print(("%d thing(s) to put right before this will work."):format(faults))
+  end
+end
+
 local function cmdHelp()
   print("start          begin handing out work")
   print("stop           stop handing out work")
@@ -855,6 +988,7 @@ local function cmdHelp()
   print("floor <on|off> cap holes under a cleared area (off by default)")
   print("retry          put the written-off columns back in the pool")
   print("clear          forget the area and start over")
+  print("recalibrate    look at the world again: position, store, versions")
   print("exit           quit the coordinator")
   print("")
   print("corners are marked from a turtle: 'flatten mark1', 'flatten mark2'")
@@ -883,6 +1017,7 @@ local function commandLoop()
     elseif verb == "floor" then cmdFloor(rest)
     elseif verb == "retry" then cmdRetry()
     elseif verb == "clear" then cmdClear()
+    elseif verb == "recalibrate" or verb == "recal" then cmdRecalibrate()
     elseif verb == "help" then cmdHelp()
     elseif verb == "exit" then return
     else print("unknown command '" .. verb .. "' - try 'help'")
@@ -911,51 +1046,17 @@ end
 -- gets moved, or the note was written by a version that looked further
 -- afield than this one does. Handing a stale one out sends every turtle
 -- that joins walking to a place with nothing in it.
-if depot and depot.store and not besideMe(depot.store) then
+-- Only when we actually know where we are. Losing the GPS signal is no
+-- reason to throw away a good note.
+if myPos and depot and depot.store and not besideMe(depot.store) then
   print(("the store I had noted (%s) is not next to me - forgetting it")
     :format(common.formatPos(depot.store)))
   depot = nil
   spine = nil
 end
 
--- Work out what is actually attached, and what block it is. Anything that
--- accepts items counts, vanilla or not - what matters is that turtles are
--- told the block id, because they identify the depot by looking at it.
-local function findAttachedInventories()
-  local found = {}
-  for _, side in ipairs(peripheral.getNames()) do
-    local isInventory
-    if peripheral.hasType then
-      isInventory = peripheral.hasType(side, "inventory")
-    else
-      -- Older builds without hasType: fall back to asking for the methods
-      -- an inventory would have.
-      local methods = peripheral.getMethods(side) or {}
-      for _, method in ipairs(methods) do
-        if method == "pushItems" or method == "list" then isInventory = true break end
-      end
-    end
-    if isInventory then
-      found[#found + 1] = { side = side, type = peripheral.getType(side) or "unknown" }
-    end
-  end
-  return found
-end
 
-local attached = findAttachedInventories()
-depotTypes = {}  -- filled in below
-for _, inv in ipairs(attached) do
-  depotTypes[#depotTypes + 1] = inv.type
-  print(("resupply store: %s (on %s)"):format(inv.type, inv.side))
-end
-
-if #attached == 0 then
-  print("!! nothing next to me accepts items. put a container against this")
-  print("   computer. what I can see is:")
-  for _, side in ipairs(peripheral.getNames()) do
-    print(("     %s (%s)"):format(peripheral.getType(side) or "?", side))
-  end
-end
+reportAttached(scanAttached())
 
 restore()
 print(("ComCraft coordinator %s (computer %d) ready.")

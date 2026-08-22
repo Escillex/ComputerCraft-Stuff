@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zh (turtle 7)
+flatten 2026-08-22zi (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -115,7 +115,7 @@ is what the version line on startup is for. **The coordinator enforces it**
 - a turtle on a different version is refused work outright, and told so:
 
 ```
-turtle 5 is on 2026-08-22y, not 2026-08-22zh - refusing it work
+turtle 5 is on 2026-08-22y, not 2026-08-22zi - refusing it work
   run 'update all' on it and reboot it
 ```
 
@@ -202,7 +202,43 @@ everything else. `start` refuses and says so.
 | `floor <on\|off>` | cap holes under a cleared area (off by default) |
 | `retry` | put written-off columns back in the pool and have another go |
 | `clear` | forget the area so you can mark a new one |
+| `recalibrate` | look at the world again: position, store, area, versions |
 | `exit` | quit |
+
+### recalibrate
+
+The coordinator reads the world round it once, at startup, and then
+believes what it saw for the rest of the session. Move the store, move the
+computer, lose the GPS, and it is quietly wrong with no way to tell it so
+short of restarting. `recalibrate` is that way, and it complains rather
+than putting things right silently, because every one of these stops the
+job:
+
+```
+> recalibrate
+moved: I was at x=206 y=64 z=-644, I am at x=206 y=64 z=-640
+!! nothing next to me accepts items. put a container against this
+   computer. what I can see is:
+     computercraft:wireless_modem (right)
+forgetting the noted store at x=206 y=64 z=-645 - it is not next to me
+!! on the wrong version: 5 (2026-08-22y)
+3 thing(s) to put right before this will work.
+```
+
+It is also what to run after putting a container against the computer,
+instead of restarting the coordinator.
+
+**`start` refuses if nothing is attached.** The coordinator can see for
+itself whether anything next to it accepts items, so there is no excuse for
+sending a turtle off to look for a store that cannot be there - that errand
+is exactly what puts one over the horizon:
+
+```
+> start
+!! nothing next to me accepts items, so there is nothing for the
+   turtles to resupply from and no point starting.
+   put a container against this computer and run 'recalibrate'.
+```
 
 ## Columns it could not finish
 

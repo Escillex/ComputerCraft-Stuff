@@ -229,6 +229,27 @@ coordinator hands out with the depot token, and the coordinator's own note
 across a restart. All three now discard a store that is not inside the
 cube.
 
+**The coordinator can see whether it has a store, and should act on it.**
+`peripheral.hasType(side, "inventory")` tells it directly, and it knew all
+along - it prints the block id and the side at startup - but the knowledge
+was only ever displayed. `start` would happily begin a job with nothing
+attached and send a turtle off to search for a store that could not exist,
+which is the errand that put one over the horizon. It now refuses.
+
+What it cannot do is turn the side into a position: `top` and `bottom` are
+unambiguous, but `left`, `right`, `front` and `back` depend on which way
+the computer faces, and CC does not tell a computer its own facing. So the
+turtles still look - but only ever inside the cube, and only when there is
+something to find.
+
+**`recalibrate`.** Everything about the world round the coordinator is read
+once at startup and believed thereafter: its GPS position, what is attached
+to it, whether the noted store is still there. Move any of it and the only
+remedy was a restart. `recalibrate` re-reads all of it, forgets a note that
+no longer describes anything, and reports every fault it finds with a count
+rather than fixing things silently - each of these stops the job, so each
+is worth saying out loud.
+
 ## Version enforcement belongs on the coordinator
 
 Found in the world, not the simulator. A turtle still on an older version
