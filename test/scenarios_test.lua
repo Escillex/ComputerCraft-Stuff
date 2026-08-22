@@ -2199,6 +2199,69 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== resuming a fill job saved by an older version ===")
+--------------------------------------------------------------------------
+do
+  -- Stopping a job, updating and carrying on is the ordinary way to pick up
+  -- a change. A version back, the block to fill with was a single name
+  -- rather than a list of them, so a state file left by one of those has to
+  -- still be readable - and the job has to go on filling with the same
+  -- block it was told about before the stop.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 12 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+
+  -- Exactly what the older version wrote: material as a bare string.
+  coord.files["coordinator.state"] = ([[{
+    corners = { { x = %d, y = %d, z = %d, }, { x = %d, y = %d, z = %d, }, },
+    box = { minX = %d, maxX = %d, minY = %d, maxY = %d, minZ = %d, maxZ = %d, },
+    running = false,
+    mode = "fill",
+    material = "%s",
+  }]]):format(box.minX, box.maxY, box.minZ, box.maxX, box.minY, box.maxZ,
+              box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ,
+              MATERIAL)
+
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  local log = table.concat(coord.log, "\n")
+  check(log:find("mode: fill with " .. MATERIAL, 1, true) ~= nil,
+    "it read the old state without falling over")
+
+  local w = sim.addMachine({ id = 440, name = "resumed", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "the turtle did not crash"
+    .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0 and wrong == 0,
+    ("and carried on filling with it (%d empty, %d wrong)"):format(air, wrong))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

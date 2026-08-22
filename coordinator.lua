@@ -149,7 +149,12 @@ local function restore()
   box = saved.box
   depot = saved.depot
   mode = saved.mode or "clear"
+  -- A version back this was a single block rather than a list of them. A
+  -- state file written by one of those would hand a bare string to code
+  -- that now expects to walk a table, so it gets wrapped on the way in.
   material = saved.material
+  if type(material) == "string" then material = { material } end
+  if type(material) ~= "table" or #material == 0 then material = nil end
   if saved.floorPatch ~= nil then floorPatch = saved.floorPatch end
   running = saved.running or false
   if box then

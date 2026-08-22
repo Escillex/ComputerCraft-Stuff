@@ -1370,6 +1370,7 @@ local function workerLoop()
         myCell = reply.cell
         mode = reply.mode or mode
         material = reply.material or material
+        if type(material) == "string" then material = { material } end
         spine = reply.spine or spine
         if reply.floorPatch ~= nil then floorPatch = reply.floorPatch end
         print(("%s %d,%d"):format(mode == "fill" and "fill" or "cell",
@@ -1601,6 +1602,8 @@ local function cmdWork()
   depotTypes = welcome.depotTypes or depotTypes
   mode = welcome.mode or mode
   material = welcome.material
+  -- Older coordinators sent a single block rather than a list.
+  if type(material) == "string" then material = { material } end
   spine = welcome.spine
   if welcome.floorPatch ~= nil then floorPatch = welcome.floorPatch end
   if not box then
