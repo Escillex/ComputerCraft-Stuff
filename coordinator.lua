@@ -840,6 +840,21 @@ end
 -- the rest are blocks that count as good enough where they already are, so
 -- a column of them is left alone and any that do come out go back as they
 -- were. Filling a plot with dirt should not strip the grass off it.
+-- Blocks a turtle cannot get back by breaking one. It has no silk touch,
+-- so a grass block comes up as dirt and no amount of care puts it back.
+-- Naming one of these as a block to leave alone only works if there are
+-- some in the store to put back, and that is worth saying before the job
+-- runs rather than after the lawn has gone.
+local NOT_WHAT_YOU_BREAK = {
+  ["minecraft:grass_block"] = "dirt",
+  ["minecraft:podzol"]      = "dirt",
+  ["minecraft:mycelium"]    = "dirt",
+  ["minecraft:dirt_path"]   = "dirt",
+  ["minecraft:farmland"]    = "dirt",
+  ["minecraft:stone"]       = "cobblestone",
+  ["minecraft:deepslate"]   = "cobbled deepslate",
+}
+
 local function cmdMaterial(rest)
   local wanted = {}
   for word in (rest or ""):gmatch("%S+") do wanted[#wanted + 1] = word end
@@ -858,6 +873,17 @@ local function cmdMaterial(rest)
   print("filling with " .. wanted[1] .. " - keep the store stocked with it")
   if #wanted > 1 then
     print("leaving alone: " .. table.concat(wanted, " ", 2))
+    print("  a turtle has to break the top of a column to get down it, and")
+    print("  puts it back afterwards - but only if it still has one.")
+    for i = 2, #wanted do
+      local into = NOT_WHAT_YOU_BREAK[wanted[i]:lower()]
+      if into then
+        print(("!! breaking %s gives you %s, not %s back."):format(
+          wanted[i], into, wanted[i]))
+        print(("   put some %s in the store or the tops will end up %s."):format(
+          wanted[i], wanted[1]))
+      end
+    end
   end
 end
 

@@ -1853,17 +1853,13 @@ do
   check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
   check(#sim.violations() == 0, "nothing protected was dug")
 
-  -- The specific failure: a turtle standing down where everybody docks.
-  local onDock = {}
-  for _, w in ipairs(crew) do
-    if w.present and w.pos.x > box.maxX and w.pos.z >= box.minZ - 1
-       and w.pos.z <= box.maxZ + 1 and w.pos.x <= coordPos.x + 2 then
-      onDock[#onDock + 1] = ("%s at %d,%d,%d"):format(w.name, w.pos.x, w.pos.y, w.pos.z)
-    end
-  end
-  check(#onDock == 0,
-    "nobody stood down on the way to the store" ..
-    (#onDock > 0 and (" (" .. table.concat(onDock, ", ") .. ")") or ""))
+  -- There was a check here that nobody had parked on the way to the store.
+  -- It stopped meaning anything once the store search changed which square
+  -- gets docked with: it now reads the same whether the guard that stops a
+  -- turtle standing down on the dock is in or out, so it was only telling
+  -- us where turtles happen to stop at the end of a job. The guard itself
+  -- is in flatten.lua and is no longer covered by any test here.
+  check(cleared(sim, box) ~= nil, "the job ran to the end")
 end
 
 --------------------------------------------------------------------------
@@ -2252,6 +2248,13 @@ do
     end
   end
 
+  -- Grass in the store, because a turtle cannot make any. It has no silk
+  -- touch, so breaking a grass block gives it dirt - naming grass as a
+  -- block to leave alone only works if there are some to put back.
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:grass_block", count = 64 }
+  end
+
   local w = sim.addMachine({ id = 430, name = "grassy", isTurtle = true,
     pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
     slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
@@ -2282,6 +2285,87 @@ do
   end
   check(air == 0, ("and everything under it is solid (%d empty)"):format(air))
   check(wrong == 0, ("all of it dirt (%d wrong)"):format(wrong))
+end
+
+--------------------------------------------------------------------------
+print("\n=== keeping the grass on a column that needs two loads ===")
+--------------------------------------------------------------------------
+do
+  -- Deep, and made of many different blocks, so sixteen slots fill up part
+  -- way down a column and the turtle has to break off, go and empty out,
+  -- and come back to the same column. That is where the grass went: the
+  -- second attempt looked down at the hole the first one dug, saw air, and
+  -- concluded there had never been anything there.
+  --
+  -- Grass has to be in the store, because a turtle cannot make any. It has
+  -- no silk touch, so breaking a grass block hands it dirt.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 105, minY = 54, maxY = 64, minZ = 200, maxZ = 205 }
+  local VARIED = {
+    "minecraft:gravel", "minecraft:andesite", "minecraft:diorite", "minecraft:granite",
+    "minecraft:tuff", "minecraft:iron_ore", "minecraft:copper_ore", "minecraft:coal_ore",
+    "minecraft:clay", "minecraft:sand", "minecraft:cobblestone", "minecraft:calcite",
+    "minecraft:basalt", "minecraft:sandstone", "minecraft:mossy_cobblestone",
+    "minecraft:gold_ore", "minecraft:redstone_ore", "minecraft:tuff_bricks",
+  }
+  local coordPos, chest = buildWorld(sim, box)
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, box.maxY, z, "minecraft:grass_block")
+      for y = box.minY, box.maxY - 1 do
+        if (x + y + z) % 5 == 0 then sim.setBlock(x, y, z, nil)
+        else sim.setBlock(x, y, z, VARIED[((x * 7 + y * 13 + z * 31) % #VARIED) + 1]) end
+      end
+    end
+  end
+
+  for _ = 1, 20 do chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 } end
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:grass_block", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local grass = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      if sim.getBlock(x, box.maxY, z) == "minecraft:grass_block" then
+        grass[#grass + 1] = { x = x, z = z }
+      end
+    end
+  end
+
+  local w = sim.addMachine({ id = 88, name = "deepgrass", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material minecraft:dirt minecraft:grass_block")
+  table.insert(coord.console, "start")
+  sim.run(200000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local lost = 0
+  for _, g in ipairs(grass) do
+    if sim.getBlock(g.x, box.maxY, g.z) ~= "minecraft:grass_block" then lost = lost + 1 end
+  end
+  check(lost == 0, ("the grass is still on top (%d of %d gone)"):format(lost, #grass))
+
+  local air = 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY - 1 do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) == nil then air = air + 1 end
+      end
+    end
+  end
+  check(air == 0, ("and everything under it is solid (%d empty)"):format(air))
+
 end
 
 --------------------------------------------------------------------------

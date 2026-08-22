@@ -721,11 +721,15 @@ end
 -- Everything goes in the store except one stack to patch floors with. A
 -- turtle that empties itself completely has nothing to fill the next hole
 -- it opens, and leaves it gaping until it happens to dig some more dirt.
-local function dumpInventory(dir, keepSlot)
+-- `keep` is a set of slot numbers, not one slot. Handing over everything
+-- but a single slot is how a turtle that is filling with more than one
+-- block loses all but the first of them.
+local function dumpInventory(dir, keep)
   local drop = DROP[dir or "forward"]
   local blocked = false
+  keep = keep or {}
   for slot = 1, 16 do
-    if slot ~= keepSlot and turtle.getItemCount(slot) > 0 then
+    if not keep[slot] and turtle.getItemCount(slot) > 0 then
       turtle.select(slot)
       drop()
       if turtle.getItemCount(slot) > 0 then blocked = true end
@@ -804,10 +808,68 @@ end
 -- Load up with whatever we are filling with. Same walk as the fuel hunt:
 -- pull stacks out, keep the ones that are the right thing, hand the rest
 -- straight back.
+local function holding(name)
+  name = name:lower()
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name:lower() == name then return true end
+  end
+  return false
+end
+
+-- How many pulls out of the store to spend hunting for a scarce block
+-- before giving up on it for this trip. The store fills with spoil as the
+-- job goes on, so what we want can be a long way down it - but not so far
+-- that it is worth emptying the whole thing to find.
+local HUNT = 32
+local HUNT_RESERVE = 2     -- slots kept free so the hunt can always put back
+
 local function takeMaterial(dir)
   if not material then return false end
   local suck, drop = SUCK[dir or "forward"], DROP[dir or "forward"]
   local held = {}
+
+  -- Go looking for the blocks named after the first before filling up on
+  -- the first itself. Those are the ones a turtle cannot make - it has no
+  -- silk touch, so breaking a grass block hands it dirt - which means the
+  -- only grass it will ever put back is grass it took out of the store.
+  -- Fill every slot with the main block first and there is no room left to
+  -- carry any, so every top goes down as the main block.
+  for want = 2, #material do
+    local name = material[want]
+    if not holding(name) then
+      for _ = 1, HUNT do
+        local slot, free = nil, 0
+        for i = 1, 16 do
+          if turtle.getItemCount(i) == 0 then
+            free = free + 1
+            slot = slot or i
+          end
+        end
+        -- Stop while there is still room to carry what we came for.
+        -- Hunting until the inventory is full leaves nothing to load the
+        -- actual fill into, and the turtle goes back to the job with an
+        -- armful of somebody else's rubble and no blocks at all.
+        if not slot or free <= HUNT_RESERVE then break end
+        turtle.select(slot)
+        if not suck(64) then break end
+        local item = turtle.getItemDetail(slot)
+        if item and item.name:lower() == name:lower() then break end
+        -- Not it. Hold on to it so the next pull comes off the next stack
+        -- rather than the same one, and put it all back at the end.
+        held[#held + 1] = slot
+      end
+    end
+  end
+
+  -- Put back everything the hunt turned over before loading up. It has to
+  -- happen here rather than at the end: the hunt uses slots to get past
+  -- what it does not want, and those slots are the ones the fill needs.
+  for _, slot in ipairs(held) do
+    turtle.select(slot)
+    drop()
+  end
+  held = {}
 
   for slot = 1, 16 do
     if materialSlots() >= MATERIAL_SLOTS then break end
@@ -916,13 +978,43 @@ local function useDepot()
   if dir == "forward" then turnTo(depot.facing) end
 
   -- Hand over the spoil but hold on to what we are filling with.
-  local keep = fillSlot()
+  -- Everything we are filling with stays aboard, not just the first slot
+  -- of it. The blocks named after the first are the ones that only ever
+  -- come out of the ground - grass, say - and the store has none to give
+  -- back, so handing one over loses it for good and the column it came off
+  -- gets topped with plain fill instead.
+  --
+  -- Those go first when there is not room for all of it, for the same
+  -- reason: the store is full of the first block and will hand back as much
+  -- of it as we want.
+  local keep = {}
+  local slot = fillSlot()
+  if slot then keep[slot] = true end
+
   if material then
-    for slot = 1, 16 do
-      local item = turtle.getItemDetail(slot)
-      if item and isMaterial(item.name) then keep = slot break end
+    local precious, plain = {}, {}
+    for s = 1, 16 do
+      local item = turtle.getItemDetail(s)
+      if item and isMaterial(item.name) then
+        if item.name:lower() == material[1]:lower() then
+          plain[#plain + 1] = s
+        else
+          precious[#precious + 1] = s
+        end
+      end
+    end
+    local room = MATERIAL_SLOTS
+    for _, list in ipairs({ precious, plain }) do
+      for _, s in ipairs(list) do
+        if room <= 0 then break end
+        if not keep[s] then
+          keep[s] = true
+          room = room - 1
+        end
+      end
     end
   end
+
   if not dumpInventory(dir, keep) then
     trouble("the resupply store is FULL - empty it or I cannot keep mining")
   end
@@ -1251,14 +1343,20 @@ local function goToViaSpine(cx, cz, travelY, ceiling)
     if onRoadNow then
       legs = { { cx, cz } }
     elseif spine.axis == "x" then
-      local mz = math.max(box.minZ, math.min(box.maxZ, depot.dock.z))
+      -- The store can be unknown here: forgotten because the note pointed
+      -- nowhere, or given up on because the dock stopped working. The road
+      -- still has a mouth, so aim at the near end of it rather than
+      -- falling over.
+      local mz = math.max(box.minZ, math.min(box.maxZ,
+        depot and depot.dock.z or box.minZ))
       legs = {
         { spine.value + outward, mz },   -- outside the mouth
         { spine.value, mz },             -- in at the mouth
         { cx, cz },                      -- up the road to the square
       }
     else
-      local mx = math.max(box.minX, math.min(box.maxX, depot.dock.x))
+      local mx = math.max(box.minX, math.min(box.maxX,
+        depot and depot.dock.x or box.minX))
       legs = {
         { mx, spine.value + outward },
         { mx, spine.value },
@@ -1437,6 +1535,13 @@ end
 -- underfoot, and seal the last block from the neighbour on the way home.
 -- Whatever comes out that matches the material goes straight back in, so
 -- filling stone with stone costs almost nothing from the store.
+-- What was in each block of the column we are part way through, kept
+-- across going away to empty out and coming back. Without it the second
+-- attempt at a column looks down at the hole the first attempt dug, sees
+-- air, and concludes there was never anything there - so the grass it is
+-- still carrying never goes back on, and plain fill goes down instead.
+local partCell, partWasHere = nil, nil
+
 local function fillCell(cell)
   state = "filling"
   if not material then return "blocked", "nothing to fill with" end
@@ -1465,6 +1570,10 @@ local function fillCell(cell)
   -- looked at from above, because moving into a column is what digs it -
   -- and the top block is where the grass lives.
   local wasHere = {}
+  if partCell and partCell.x == cell.x and partCell.z == cell.z then
+    wasHere = partWasHere
+  end
+  partCell, partWasHere = cell, wasHere
 
   local ok, why
   if skyOverhead then
@@ -1510,6 +1619,7 @@ local function fillCell(cell)
     if sealWhy and sealWhy:find("out of", 1, true) then return "empty" end
     return "blocked", sealWhy
   end
+  partCell, partWasHere = nil, nil
   return "done"
 end
 

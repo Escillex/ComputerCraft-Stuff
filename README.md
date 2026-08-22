@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zi (turtle 7)
+flatten 2026-08-22zj (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -115,7 +115,7 @@ is what the version line on startup is for. **The coordinator enforces it**
 - a turtle on a different version is refused work outright, and told so:
 
 ```
-turtle 5 is on 2026-08-22y, not 2026-08-22zi - refusing it work
+turtle 5 is on 2026-08-22y, not 2026-08-22zj - refusing it work
   run 'update all' on it and reboot it
 ```
 
@@ -172,7 +172,23 @@ back exactly as they were if they come out:
 > material minecraft:dirt minecraft:grass_block
 ```
 
-That fills a plot with dirt and leaves the grass on top of it alone.
+That fills a plot with dirt and puts the grass back on top of it.
+
+**Put some of the extra blocks in the store.** A turtle has to break the
+top of a column to get down it, and lays it back afterwards - but only if
+it still has one, and **a turtle has no silk touch**. Breaking a grass
+block hands it dirt, so the only grass it will ever lay is grass it took
+out of the store. Without any in there the tops come back as dirt, and it
+says so when you set the material:
+
+```
+!! breaking minecraft:grass_block gives you dirt, not minecraft:grass_block back.
+   put some minecraft:grass_block in the store or the tops will end up minecraft:dirt.
+```
+
+The same goes for podzol, mycelium, paths and farmland, and for stone,
+which breaks into cobblestone. (Left as dirt, grass does grow back on its
+own eventually - it is only the look of it while you wait.)
 
 Filling replaces what is there rather than working round it, so it deals
 with water and lava for nothing: a block laid into a fluid displaces it.

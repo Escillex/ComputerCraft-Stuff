@@ -250,6 +250,50 @@ no longer describes anything, and reports every fault it finds with a count
 rather than fixing things silently - each of these stops the job, so each
 is worth saying out loud.
 
+## A turtle has no silk touch
+
+The whole idea of naming a second block as "leave this one where it is"
+rests on being able to put it back if it does come out, and for the block
+people actually name - grass - that is not possible. Breaking a grass block
+gives a turtle dirt. It can never make more grass.
+
+This went unnoticed for a long time because the simulator was lying: it
+handed back whatever block was broken. It now models the drops that change
+what you get (`sim.DROPS`), and with that the grass test that had been
+passing fails 24 out of 24, which is what was happening in the world.
+
+So the only way a top gets its grass back is out of the store. Three things
+had to be true for that to work, and none of them were:
+
+- **The turtle must keep the grass it is carrying.** Emptying out at the
+  store kept a single slot of material, so the grass went into the chest
+  and the primary fill came back instead. Every named material stays
+  aboard now, and the ones after the first go first when there is not room
+  for all of it - the store is full of the first one and will hand back as
+  much of it as anyone wants.
+- **The turtle must go looking for it.** Loading up pulled whatever came
+  out of the chest until the material slots were full, which meant twelve
+  stacks of dirt and never reaching the grass behind it. It now hunts for
+  each named block specifically before filling up on the first.
+- **The turtle must remember what was there.** A column deep enough to fill
+  the inventory part way down is left and come back to, and the second
+  attempt looked down at the hole the first one dug, saw air, and concluded
+  there had never been anything there. What was in each block is kept
+  across the trip now.
+
+With grass in the store, none is lost. Without it, all of it goes - and the
+coordinator says so when the material is set rather than after the lawn has
+gone.
+
+**Not solved: leaving the block alone entirely.** Asked for, and the reason
+it is not done is geometry rather than effort. To lay a block at the level
+below the top, a turtle must occupy the top - so the top must be broken.
+The only way round it is to fill each column sideways from its neighbour
+and reach every level without ever entering the top layer, which needs one
+sacrificial shaft column and a route that travels one level lower than it
+does today. That is a rewrite of fill routing, and fill routing is the part
+of this that has broken most often.
+
 ## Version enforcement belongs on the coordinator
 
 Found in the world, not the simulator. A turtle still on an older version

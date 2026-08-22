@@ -3,6 +3,21 @@
 
 local sim = {}
 
+-- What a turtle actually gets for breaking a block, where that is not the
+-- block itself. A turtle has no silk touch: a grass block comes up as
+-- dirt, and no amount of care puts it back. That matters enormously to
+-- fill mode, where naming a block as one to leave alone rests entirely on
+-- being able to put it back if it does come out.
+sim.DROPS = {
+  ["minecraft:grass_block"]  = "minecraft:dirt",
+  ["minecraft:podzol"]       = "minecraft:dirt",
+  ["minecraft:mycelium"]     = "minecraft:dirt",
+  ["minecraft:dirt_path"]    = "minecraft:dirt",
+  ["minecraft:farmland"]     = "minecraft:dirt",
+  ["minecraft:stone"]        = "minecraft:cobblestone",
+  ["minecraft:deepslate"]    = "minecraft:cobbled_deepslate",
+}
+
 local REPO = os.getenv("COMCRAFT_REPO") or "."
 
 --------------------------------------------------------------------------
@@ -557,7 +572,7 @@ local function makeEnv(m)
         return false, "Unbreakable block detected"
       end
       blocks[key(x, y, z)] = nil
-      addItem(name)
+      addItem(sim.DROPS[name] or name)
       m.digs = m.digs + 1
       return true
     end
