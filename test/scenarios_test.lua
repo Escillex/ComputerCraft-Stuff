@@ -1471,6 +1471,15 @@ do
       end
     end
   end
+  local gaps = {}
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) == nil then gaps[#gaps+1] = ("%d,%d,%d"):format(x,y,z) end
+      end
+    end
+  end
+  if #gaps > 0 then print("        gaps: " .. table.concat(gaps, "  ") .. "  (mouth z=" .. MOUTH_Z .. ", road x=" .. box.maxX .. ")") end
   check(air == 0, ("it filled every block (%d empty)"):format(air))
   check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
 
@@ -1551,6 +1560,91 @@ do
       :format(air, writtenOff))
   check(log:find("beaten us", 1, true) ~= nil or air == 0,
     "and said so when it finished")
+end
+
+--------------------------------------------------------------------------
+print("\n=== filling with only one way in and out ===")
+--------------------------------------------------------------------------
+do
+  -- A ceiling on the area and the whole strip beside the road bricked up
+  -- bar a single square - the way to the store. The road cannot be
+  -- approached from alongside because there is no alongside; it has to be
+  -- entered at that one square and walked up from there, filling itself
+  -- behind as it retreats back towards it.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local MOUTH_Z = box.minZ + 1
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")
+    end
+  end
+
+  -- The strip beside the road, solid except the one square by the store.
+  local wall = {}
+  for z = box.minZ - 1, box.maxZ + 1 do
+    if z ~= MOUTH_Z then
+      for y = box.minY - 1, box.maxY + 2 do
+        sim.setBlock(box.maxX + 1, y, z, "minecraft:obsidian")
+        wall[#wall + 1] = { x = box.maxX + 1, y = y, z = z }
+      end
+    end
+  end
+
+  local coordPos = { x = box.maxX + 3, y = box.maxY, z = MOUTH_Z }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 4 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+  for _ = 1, 12 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  sim.setBlock(box.maxX, box.maxY, MOUTH_Z, nil)
+  local w = sim.addMachine({ id = 280, name = "onewayin", isTurtle = true,
+    pos = { x = box.maxX, y = box.maxY, z = MOUTH_Z }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  local gaps = {}
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) == nil then gaps[#gaps+1] = ("%d,%d,%d"):format(x,y,z) end
+      end
+    end
+  end
+  if #gaps > 0 then print("        gaps: " .. table.concat(gaps, "  ") .. "  (mouth z=" .. MOUTH_Z .. ", road x=" .. box.maxX .. ")") end
+  check(air == 0, ("it filled every block (%d empty)"):format(air))
+  check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
+
+  local broken = 0
+  for _, b in ipairs(wall) do
+    if sim.getBlock(b.x, b.y, b.z) ~= "minecraft:obsidian" then broken = broken + 1 end
+  end
+  check(broken == 0, ("and the wall is untouched (%d of %d)"):format(broken, #wall))
 end
 
 --------------------------------------------------------------------------

@@ -868,20 +868,33 @@ local function goToViaSpine(cx, cz, travelY, ceiling)
 
   local legs
   if onRoad then
-    -- The road is filled last and cannot be walked along once it is being
-    -- filled - stepping back onto it would dig up the very column just
-    -- sealed. So it is approached from outside the area instead, along the
-    -- open lane between the area and the store, and stepped into sideways.
-    if spine.axis == "x" then
+    -- The road is filled as one long retreat towards the store: fill a
+    -- square, step to the next one along, seal the one just left behind
+    -- from there. A turtle already standing on the road simply carries on
+    -- along it, and everything between it and its next square is nearer the
+    -- store, so it is still open.
+    --
+    -- Coming back to the road after a trip to the store, it goes in at the
+    -- mouth - the square nearest the store, which is the very last one
+    -- filled and so open until the end - and walks up from there. That way
+    -- the only clear ground the road ever needs is the step outside its own
+    -- mouth, which is the way to the store anyway.
+    local onRoadNow = (spine.axis == "x" and pos.x == spine.value)
+                   or (spine.axis == "z" and pos.z == spine.value)
+    if onRoadNow then
+      legs = { { cx, cz } }
+    elseif spine.axis == "x" then
+      local mz = math.max(box.minZ, math.min(box.maxZ, depot.dock.z))
       legs = {
-        { spine.value + outward, pos.z },
-        { spine.value + outward, cz },
-        { cx, cz },
+        { spine.value + outward, mz },   -- outside the mouth
+        { spine.value, mz },             -- in at the mouth
+        { cx, cz },                      -- up the road to the square
       }
     else
+      local mx = math.max(box.minX, math.min(box.maxX, depot.dock.x))
       legs = {
-        { pos.x, spine.value + outward },
-        { cx, spine.value + outward },
+        { mx, spine.value + outward },
+        { mx, spine.value },
         { cx, cz },
       }
     end
@@ -928,7 +941,45 @@ end
 -- Which way home is. Columns are given out furthest-from-the-store first,
 -- so the neighbour in this direction has not been filled yet and can be
 -- stood in.
+-- Where the road meets the store: the square on it nearest the store, and
+-- the last one of the lot to be filled.
+local function roadMouth()
+  if not spine or not depot then return nil end
+  if spine.axis == "x" then
+    return spine.value, math.max(box.minZ, math.min(box.maxZ, depot.dock.z))
+  end
+  return math.max(box.minX, math.min(box.maxX, depot.dock.x)), spine.value
+end
+
+-- Which way home is. Off the road that is simply towards the store.
+--
+-- On the road it is towards the mouth instead, which is not the same thing:
+-- the road can run past the mouth and out the other side, and a turtle down
+-- that end pointed straight at the store walks into whatever is beside the
+-- road rather than back along it.
 local function towardStore()
+  local onRoadNow = spine and
+    ((spine.axis == "x" and pos.x == spine.value)
+     or (spine.axis == "z" and pos.z == spine.value))
+
+  if onRoadNow then
+    local mx, mz = roadMouth()
+    if mx then
+      if spine.axis == "x" then
+        if pos.z < mz then return 2 end
+        if pos.z > mz then return 0 end
+      else
+        if pos.x < mx then return 1 end
+        if pos.x > mx then return 3 end
+      end
+      -- Standing on the mouth itself: out of the area, towards the store.
+      if spine.axis == "x" then
+        return spine.value == box.maxX and 1 or 3
+      end
+      return spine.value == box.maxZ and 2 or 0
+    end
+  end
+
   local target = (depot and depot.dock) or coordPos
   if not target then return nil end
   local dx, dz = target.x - pos.x, target.z - pos.z

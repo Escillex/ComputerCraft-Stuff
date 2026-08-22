@@ -203,14 +203,24 @@ is the one next to it.
 
 Three things this needs that were not obvious:
 
-- **The road is approached from outside the area.** Once the road is being
-  filled it cannot be walked along - stepping back onto it digs up the
-  column just sealed. Turtles come along the open lane between the area and
-  the store and step in sideways.
+- **The road is filled as one long retreat, not one column at a time.**
+  Fill a square, step to the next one along, seal the one just left from
+  there. A turtle that goes away to resupply comes back in at the *mouth* -
+  the square nearest the store, which is the last of all to be filled and so
+  open until the end - and walks up the road from there. Everything between
+  the mouth and its next square is nearer the store, so it is still open.
+  The only clear ground the road ever needs is the single step outside its
+  own mouth, which is the way to the store anyway. An earlier version came
+  at the road from a lane running alongside it, which needed that whole
+  strip clear and stepped back onto filled squares to get there.
 - **The edge is the one the store is beyond, not the nearest-numbered
   one.** A store off the east side can sit at a z inside the area's own
   range; measuring each axis on its own then picks a north or south edge and
   sends everybody the wrong way home.
+- **On the road, home means the mouth, not the store.** A road can run past
+  its mouth and out the other side. A turtle down that end pointed straight
+  at the store walks into whatever is beside the road instead of back along
+  it, and leaves the square it was sealing open.
 - **Which road to use is decided once, not guessed at.** A turtle that sets
   off over the top and meets a ceiling halfway is left standing on the roof
   of the job with no way down. So the road is used until a turtle has stood
