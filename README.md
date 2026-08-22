@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zf (turtle 7)
+flatten 2026-08-22zg (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -111,7 +111,22 @@ area and the store's position are remembered too, so there is no need to
 mark the corners again.
 
 Every computer has to be on the same version before the job will run, which
-is what the version line on startup is for.
+is what the version line on startup is for. **The coordinator enforces it**
+- a turtle on a different version is refused work outright, and told so:
+
+```
+turtle 5 is on 2026-08-22y, not 2026-08-22zg - refusing it work
+  run 'update all' on it and reboot it
+```
+
+It is refused everything: no columns, and above all it is never the one
+sent to find the store, because an old turtle looks for it the way its own
+version looked and that is how one ends up a hundred blocks away. It still
+shows up in `list` and `locate`, so you can go and find it.
+
+The turtle checks its own version too, but that check is not the one that
+matters: an old turtle checks with old code, and its code not being what
+you think it is is the whole problem.
 
 ### A turtle that will not start
 

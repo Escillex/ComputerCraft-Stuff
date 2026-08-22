@@ -748,6 +748,7 @@ function sim.addMachine(opts)
     adjacentChest = opts.adjacentChest,
     storeType = opts.storeType,
     shellRun = opts.shellRun,
+    patchFiles = opts.patchFiles,
     httpGet = opts.httpGet,
     moves = 0,
     digs = 0,
@@ -764,6 +765,14 @@ function sim.boot(m, program, args)
     local source = name:match("%.lua$") and name or (name .. ".lua")
     local ok, src = pcall(readRepoFile, source)
     if ok then m.files[name] = src end
+  end
+
+  -- Let a machine run a doctored copy of the scripts, so a turtle left on
+  -- an old version can be stood next to a current coordinator.
+  if m.patchFiles then
+    for name, patch in pairs(m.patchFiles) do
+      if m.files[name] then m.files[name] = patch(m.files[name]) end
+    end
   end
 
   m.program = program

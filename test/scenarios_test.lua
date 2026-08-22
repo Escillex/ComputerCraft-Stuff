@@ -2404,6 +2404,82 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a turtle left on an old version gets no work ===")
+--------------------------------------------------------------------------
+do
+  -- Seen in the world: a turtle still on an old version joined a current
+  -- coordinator, was handed the job of finding the store, and walked a
+  -- hundred and fifty blocks east before going quiet. It searched the way
+  -- its own version searched, which was not bounded.
+  --
+  -- The turtle checks its version too, but an old turtle checks with old
+  -- code, and its code not being what we think it is is the entire problem.
+  -- So the coordinator decides, and refuses it everything.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local OLD = "2026-08-22y"
+  local stale = sim.addMachine({ id = 55, name = "stale", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0,
+    patchFiles = {
+      ["common.lua"] = function(src)
+        return (src:gsub('common%.VERSION = "[^"]+"',
+          'common.VERSION = "' .. OLD .. '"'))
+      end,
+      -- An old turtle does not police itself, or this would never have
+      -- happened. Take its own version check out, so what is left standing
+      -- between it and the horizon is the coordinator and nothing else.
+      ["flatten"] = function(src)
+        return (src:gsub("if welcome%.version ~= common%.VERSION then",
+          "if false then"))
+      end,
+    },
+  })
+  sim.boot(stale, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(2000)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("is on " .. OLD, 1, true) ~= nil,
+    "the coordinator said which version it is on")
+  check(log:find("refusing it work", 1, true) ~= nil,
+    "and that it is getting no work")
+
+  -- The specific thing that went wrong: it was picked to go and find the
+  -- store, and that is what took it over the horizon.
+  check(log:find("turtle 55 is going to find the store", 1, true) == nil,
+    "it was not sent to find the store")
+
+  local started = 0
+  for _, l in ipairs(coord.log) do
+    if l:find("turtle 55 took", 1, true) or l:find("55 done", 1, true) then
+      started = started + 1
+    end
+  end
+  check(started == 0, ("and got no columns either (%d)"):format(started))
+
+  -- It must not wander. That is the whole complaint.
+  local out = math.max(math.abs(stale.pos.x - coordPos.x),
+                       math.abs(stale.pos.z - coordPos.z))
+  check(out < 20, ("it stayed put rather than walking off (%d blocks out)"):format(out))
+
+  -- And it must still be findable, because a turtle you cannot locate is
+  -- the thing that started all this.
+  table.insert(coord.console, "list")
+  sim.run(sim.now() + 20)
+  check(table.concat(coord.log, "\n"):find("55", 1, true) ~= nil,
+    "and 'list' still knows where it is")
+end
+
+--------------------------------------------------------------------------
 print("\n=== the search stops at the edge of the cube ===")
 --------------------------------------------------------------------------
 do

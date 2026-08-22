@@ -62,12 +62,18 @@ end
 -- Ask and wait for the matching reply. common.request tags every request
 -- with a nonce, so a late or unrelated message can never be mistaken for
 -- the answer to this one.
+-- Every message says which version said it, not just the hello. The
+-- coordinator refuses work to a turtle on the wrong version, and marking a
+-- corner never says hello first - so without this the marker turtle looks
+-- exactly like a stale one.
 local function ask(msg, timeout)
+  msg.version = common.VERSION
   return common.request(coordId, msg, timeout)
 end
 
 local function tell(msg)
   msg.from = os.getComputerID()
+  msg.version = common.VERSION
   rednet.send(coordId, msg, common.PROTOCOL)
 end
 

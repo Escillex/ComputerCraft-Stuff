@@ -330,6 +330,11 @@ end
 -- Messages
 --------------------------------------------------------------------------
 
+local function reply(id, msg, nonce)
+  msg.nonce = nonce
+  rednet.send(id, msg, common.PROTOCOL)
+end
+
 local function seen(id, msg)
   local entry = turtles[id]
   if not entry then
@@ -340,12 +345,37 @@ local function seen(id, msg)
   if msg.pos then entry.pos = msg.pos end
   if msg.state then entry.state = msg.state end
   if msg.fuel then entry.fuel = msg.fuel end
+  if msg.version then entry.version = msg.version end
   return entry
 end
 
-local function reply(id, msg, nonce)
-  msg.nonce = nonce
-  rednet.send(id, msg, common.PROTOCOL)
+-- A turtle on a different version is one whose idea of the job is not this
+-- one's. It gets no work at all.
+--
+-- This has to be decided here rather than on the turtle. The turtle checks
+-- too, but an old turtle checks with old code - and the whole reason it is
+-- a problem is that its code is not the code we think it is. One that
+-- happens not to enforce it walks off doing whatever its version used to
+-- do, and the first anybody knows is a turtle a hundred blocks away.
+--
+-- Never having said which version it is counts as the wrong one: every
+-- turtle says hello before it asks for anything.
+local function wrongVersion(entry)
+  return entry.version ~= common.VERSION
+end
+
+local function refuseStale(id, entry, nonce)
+  local why = ("version mismatch: you are %s, I am %s - run 'update all' on both")
+    :format(tostring(entry.version or "an older version"), tostring(common.VERSION))
+  entry.state = "wrong version"
+  entry.trouble = why
+  if not entry.toldOff then
+    entry.toldOff = true
+    print(("turtle %d is on %s, not %s - refusing it work")
+      :format(id, tostring(entry.version or "an unknown version"), common.VERSION))
+    print("  run 'update all' on it and reboot it")
+  end
+  reply(id, { type = common.NACK, message = why }, nonce)
 end
 
 local function handle(id, msg)
@@ -357,9 +387,18 @@ local function handle(id, msg)
     return
   end
 
+  -- Where a turtle is and what it is complaining about are still worth
+  -- hearing from one on the wrong version - that is how 'list' and
+  -- 'locate' find it afterwards. Everything else is refused.
+  if msg.type ~= common.TROUBLE and wrongVersion(entry) then
+    refuseStale(id, entry, msg.nonce)
+    return
+  end
+
   if msg.type == common.HELLO then
     entry.state = "idle"
     entry.cell = nil
+    entry.toldOff = nil
     print(("turtle %d joined at %s"):format(id, common.formatPos(msg.pos)))
     reply(id, {
       type = common.WELCOME, version = common.VERSION,

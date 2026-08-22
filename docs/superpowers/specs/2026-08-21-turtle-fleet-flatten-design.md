@@ -218,6 +218,32 @@ how many turtles are worth running.
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
 
+## Version enforcement belongs on the coordinator
+
+Found in the world, not the simulator. A turtle still on an older version
+joined a current coordinator, was picked as the one to go and find the
+store, and walked a hundred and fifty blocks east before going quiet. The
+coordinator knew the versions differed - it was printing the mismatch under
+`list` - and handed out the work anyway.
+
+The version check existed, but only in `flatten.lua`: the turtle checked
+itself. That is the wrong side of the wire. An old turtle checks with old
+code, and the reason a version mismatch is dangerous is precisely that its
+code is not the code you think it is - so a version that happens not to
+enforce the check goes off and does whatever it used to do.
+
+So the coordinator decides. A turtle whose version does not match is
+refused every request, and never gets granted the depot token. Two things
+this needs:
+
+- **Every message carries the version, not just the hello.** Marking a
+  corner never says hello first, so a rule of "no version means the wrong
+  version" refuses the marker turtle unless everything is stamped.
+- **`TROUBLE` is still accepted, and the registry entry is kept.** Where a
+  stale turtle is and what it is complaining about are exactly what `list`
+  and `locate` exist to answer, and a turtle you cannot find is what
+  started all of this.
+
 ## Why filling depended on docking on the store's roof
 
 Recorded earlier as "works from the roof, leaves 68 blocks unfilled from
