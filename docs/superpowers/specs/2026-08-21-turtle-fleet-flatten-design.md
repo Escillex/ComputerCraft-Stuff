@@ -279,19 +279,18 @@ the current drain correct outright. Both were considered and dropped: the
 first needs a fluid simulator written before it could be trusted, and the
 second costs infinite water everywhere in the world.
 
-## Agreed design: plug mode, and its two variants
+## Agreed design: drain, and how it is asked to work
 
-`drain` becomes `plug`, since plugging is what it actually does, with the
-variant as an argument:
+`drain` stays the mode. How it goes about it is an argument:
 
 | | |
 |---|---|
-| `mode plug` | plug every source and leave the blocks. The pool ends as a slab of the material. Correct for water, and needs no bookkeeping at all, because nothing ever comes back out. The one to use when the area is going to be cleared anyway. |
-| `mode plug fast` | plug and unplug in one motion, a block at a time. What it does today. Correct for lava, wrong for water, cheapest of the three. |
-| `mode plug precise` | plug the whole body, then dig the plugs back out. Correct for water and leaves the place as it was. The only variant needing the per-column plug records. |
+| `mode drain fast` | plug and unplug in one motion, a block at a time. What it does today. Correct for lava, wrong for water, cheapest of the three. |
+| `mode drain plug` | plug every source and leave the blocks. The pool ends as a slab of the material. Correct for water, and needs no bookkeeping at all, because nothing ever comes back out. The one to use when the area is going to be cleared anyway. |
+| `mode drain precise` | plug the whole body, then dig the plugs back out. Correct for water and leaves the place as it was. The only variant needing the per-column plug records. |
 
-Everything below applies to `plug` and `plug precise`. `plug fast` is the
-existing behaviour and stays as it is.
+Everything below applies to `plug` and `precise`. `fast` is the existing
+behaviour and stays as it is.
 
 
 
