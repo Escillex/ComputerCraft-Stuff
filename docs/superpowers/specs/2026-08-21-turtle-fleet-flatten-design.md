@@ -218,6 +218,17 @@ how many turtles are worth running.
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
 
+**Bounding the search is not enough on its own.** A remembered store is
+never searched for, so no bound on searching applies to it. Seen in the
+world immediately after the cube went in: a turtle on the current version
+booted with a note from before, went straight to state `resupplying`
+without searching for anything, and walked forty blocks to a place with no
+store in it. The same must therefore be checked wherever a store is
+believed rather than found - the turtle's own note, the copy the
+coordinator hands out with the depot token, and the coordinator's own note
+across a restart. All three now discard a store that is not inside the
+cube.
+
 ## Version enforcement belongs on the coordinator
 
 Found in the world, not the simulator. A turtle still on an older version

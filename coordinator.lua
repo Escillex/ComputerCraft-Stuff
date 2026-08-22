@@ -349,6 +349,18 @@ local function seen(id, msg)
   return entry
 end
 
+-- How far off a store is allowed to be before it is somebody else's: the
+-- same 5x5x5 cube the turtles search, so what they are told matches what
+-- they would find.
+local STORE_RADIUS = 2
+
+local function besideMe(p)
+  if not myPos or not p then return false end
+  return math.abs(p.x - myPos.x) <= STORE_RADIUS
+     and math.abs(p.y - myPos.y) <= STORE_RADIUS
+     and math.abs(p.z - myPos.z) <= STORE_RADIUS
+end
+
 -- A turtle on a different version is one whose idea of the job is not this
 -- one's. It gets no work at all.
 --
@@ -571,7 +583,13 @@ local function handle(id, msg)
     -- A turtle only says this straight after going and looking, so take its
     -- word over what is on file. A docking spot that stopped working has to
     -- be replaceable, or every turtle keeps being sent to the same dead end.
-    if msg.depot then
+    if msg.depot and msg.depot.store and not besideMe(msg.depot.store) then
+      -- Not next to me, so it is not my store. Believing it would put this
+      -- on file and hand it to every turtle that joins from now on, and
+      -- each of them would walk to it.
+      print(("ignoring a store reported at %s - that is not next to me")
+        :format(common.formatPos(msg.depot.store)))
+    elseif msg.depot then
       local moved = not depot or not depot.dock
         or depot.dock.x ~= msg.depot.dock.x
         or depot.dock.y ~= msg.depot.dock.y
@@ -886,6 +904,18 @@ if x then
   myPos = { x = common.round(x), y = common.round(y), z = common.round(z) }
 else
   print("!! no GPS signal - turtles will not be able to find the resupply chest")
+end
+
+-- A store remembered from a previous run only counts if it is still beside
+-- me. Notes outlive what they describe: the store gets moved, this computer
+-- gets moved, or the note was written by a version that looked further
+-- afield than this one does. Handing a stale one out sends every turtle
+-- that joins walking to a place with nothing in it.
+if depot and depot.store and not besideMe(depot.store) then
+  print(("the store I had noted (%s) is not next to me - forgetting it")
+    :format(common.formatPos(depot.store)))
+  depot = nil
+  spine = nil
 end
 
 -- Work out what is actually attached, and what block it is. Anything that

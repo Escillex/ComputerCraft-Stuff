@@ -636,6 +636,25 @@ local function depotWithinReach()
   return nil
 end
 
+-- A store remembered from before - our own note, or one the coordinator is
+-- still holding - is only worth anything if it is still beside this
+-- coordinator. Bounding the search is no use on its own: a note pointing
+-- somewhere else is walked to with no bound at all, which is how a turtle
+-- ends up forty blocks away in state 'resupplying' having never searched
+-- for anything. Notes outlive the thing they describe - the store gets
+-- moved, the coordinator gets moved, the note was written by a version
+-- that looked further afield than this one does.
+local function forgetDistantDepot()
+  if not depot or not coordPos then return end
+  local store = depot.store
+  if nearCoordinator(store.x, store.y, store.z) then return end
+  print(("the store I had noted (%s) is not next to the coordinator")
+    :format(common.formatPos(store)))
+  print("forgetting it and looking again")
+  depot = nil
+  saveLocal()
+end
+
 local function probeDepot()
   if not coordPos then return nil end
 
@@ -936,7 +955,11 @@ local function depotRun()
   depotTypes = grant.depotTypes or depotTypes
   if not depot and grant.depot then
     depot = normaliseDepot(grant.depot)
-    saveLocal()
+    -- The coordinator's copy can be as stale as our own: it caches whatever
+    -- the first turtle reported, and that turtle may have been on a version
+    -- that looked further afield than this one does.
+    forgetDistantDepot()
+    if depot then saveLocal() end
   end
 
   local ok, why
@@ -1789,6 +1812,8 @@ local function cmdWork()
   if not box then
     giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end
+
+  forgetDistantDepot()
 
   print(("joined as turtle %d, facing %s at %s")
     :format(os.getComputerID(), common.FACINGS[facing].name, common.formatPos(pos)))

@@ -2404,6 +2404,67 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a note pointing at a store that is not there ===")
+--------------------------------------------------------------------------
+do
+  -- Seen in the world, and the reason bounding the search was not enough on
+  -- its own: a turtle booted with a note left from before, saying the store
+  -- was forty blocks east. It never searched for anything - it went
+  -- straight to state "resupplying" and set off walking to a place with no
+  -- store in it, and the bound on searching had nothing to say about that.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Loaded to the brim, so the very first thing it does is go and empty
+  -- itself. Without that it clears this small area without ever needing the
+  -- store, and never sets off anywhere.
+  local loaded = { [1] = { name = "minecraft:coal", count = 16 } }
+  for slot = 2, 16 do loaded[slot] = { name = "minecraft:rubble_" .. slot, count = 64 } end
+  local w = sim.addMachine({ id = 70, name = "noted", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 1,
+    slots = loaded, fuel = 0 })
+
+  -- The note: a store forty blocks east of where the coordinator is, which
+  -- is nothing but open air.
+  local ghost = { x = coordPos.x + 40, y = coordPos.y, z = coordPos.z }
+  w.files["flatten.state"] = ("{ depot = { store = { x = %d, y = %d, z = %d },"
+    .. " dock = { x = %d, y = %d, z = %d }, dir = \"down\" } }")
+    :format(ghost.x, ghost.y, ghost.z, ghost.x, ghost.y + 1, ghost.z)
+
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+
+  -- How far it gets matters more than where it ends up. Given long enough
+  -- the turtle gives up on a dock it cannot reach and looks again, so one
+  -- that walks the whole forty blocks and back still finishes the job in
+  -- the end. The walk is the complaint.
+  local furthest = 0
+  while w.alive and sim.now() < 20000 do
+    sim.run(sim.now() + 20, function() return not w.alive end)
+    furthest = math.max(furthest, math.abs(w.pos.x - coordPos.x))
+  end
+
+  local said = table.concat(w.log, "\n")
+  check(said:find("is not next to the coordinator", 1, true) ~= nil,
+    "it noticed the note pointed nowhere useful")
+  check(said:find("resupply store found at", 1, true) ~= nil,
+    "and went and found the real one instead")
+
+  check(furthest <= 6,
+    ("and never set off towards it (%d blocks from the coordinator at its furthest)")
+      :format(furthest))
+  check(cleared(sim, box) == 0,
+    ("and cleared the area (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
 print("\n=== a turtle left on an old version gets no work ===")
 --------------------------------------------------------------------------
 do

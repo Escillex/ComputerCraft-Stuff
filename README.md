@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zg (turtle 7)
+flatten 2026-08-22zh (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -115,7 +115,7 @@ is what the version line on startup is for. **The coordinator enforces it**
 - a turtle on a different version is refused work outright, and told so:
 
 ```
-turtle 5 is on 2026-08-22y, not 2026-08-22zg - refusing it work
+turtle 5 is on 2026-08-22y, not 2026-08-22zh - refusing it work
   run 'update all' on it and reboot it
 ```
 
@@ -307,7 +307,22 @@ no storage found in the 124 blocks round the coordinator (looked at 123)
 
 That bound is the point. A turtle that keeps walking until it finds a store
 is a turtle you never see again, so it looks in a box you can point at, and
-then complains. Put the store within two blocks of the coordinator - which
+then complains.
+
+The same bound applies to a store it **remembers** rather than finds. Both
+the turtle and the coordinator keep a note of where the store was, and a
+note outlives what it describes - you move the store, you move the
+coordinator, or the note was written by a version that searched further
+than this one does. Either of them will throw the note away rather than set
+off walking to it:
+
+```
+the store I had noted (x=245 y=64 z=-629) is not next to the coordinator
+forgetting it and looking again
+```
+
+Bounding the search alone was not enough: a turtle with a stale note never
+searches at all. It goes straight to `resupplying` and walks. Put the store within two blocks of the coordinator - which
 it has to be anyway, since the coordinator finds it by having it attached.
 It looks again every so often in case you have gone and put one there, but
 it will not walk off looking, and it stops the search early rather than
