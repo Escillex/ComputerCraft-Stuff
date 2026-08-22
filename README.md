@@ -68,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22q (turtle 7)
+flatten 2026-08-22r (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run

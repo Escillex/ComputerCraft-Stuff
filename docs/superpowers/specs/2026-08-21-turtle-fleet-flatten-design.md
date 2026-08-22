@@ -183,38 +183,40 @@ how many turtles are worth running.
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
 
-## Not built yet: filling under a ceiling, by leaving a spine
+## Filling under a ceiling: the spine
 
-Filling needs open sky over the area and refuses without it. Sealing a
-column works with no headroom - back out sideways and place behind - but
-travel does not: with a ceiling on the area a turtle has to cross it at its
-own top, and crossing a finished column takes its top block out on the way
-past. It left twelve holes, all in the top layer, while reporting every
-column done.
+Filling has to travel over ground nobody has filled, because a finished
+column is solid and crossing one takes its top block out on the way past.
+With sky over the area that is easy - go over the top. With something built
+on it there is nowhere above to go, and the first attempt at this left
+twelve holes in the top layer while reporting every column done.
 
-Routing round finished columns would need the coordinator to send turtles a
-map of what is done, and then real pathfinding over it. There is a simpler
-way that makes the route true by construction instead of finding it:
+The answer is to make the route true by construction rather than find it.
+**One row is left open as a road, and every other row is filled from its far
+end inwards.** Any column is then reached by going out to the road, along it
+to that column's row, and out along the open half of that row - which is
+open because rows fill outside-in. Nothing ever crosses a finished column.
+The road itself is filled last, furthest end first, by a single turtle.
 
-**Leave one row open as a spine, and fill each row from its far end
-inward.** Any column is then reached by going along the spine to its row,
-then along the part of that row not yet filled - which is always the half
-nearest the spine, because rows fill outside-in. Nothing ever needs to
-cross a finished column. When every other row is solid, one turtle fills
-the spine itself, working from the far end back and retreating along the
-part still open, which is the ordinary sealing problem in one dimension.
+The road is the edge the store lies beyond, so that the last column filled
+is the one next to it.
 
-What it needs:
+Three things this needs that were not obvious:
 
-- the coordinator ordering columns by row, far-to-near within a row, and
-  holding the spine back until everything else is done
-- the spine chosen as the row the store approaches from, so the last turtle
-  finishes next to it
-- turtles routing spine-then-row rather than the current greedy
-  along-x-then-along-z, which is what walks into finished columns
-- the last row handled by one turtle, since two would strand each other
+- **The road is approached from outside the area.** Once the road is being
+  filled it cannot be walked along - stepping back onto it digs up the
+  column just sealed. Turtles come along the open lane between the area and
+  the store and step in sideways.
+- **The edge is the one the store is beyond, not the nearest-numbered
+  one.** A store off the east side can sit at a z inside the area's own
+  range; measuring each axis on its own then picks a north or south edge and
+  sends everybody the wrong way home.
+- **Which road to use is decided once, not guessed at.** A turtle that sets
+  off over the top and meets a ceiling halfway is left standing on the roof
+  of the job with no way down. So the road is used until a turtle has stood
+  in a column and looked up, and from then on it knows.
 
-Worth doing before this is trusted on an area with anything built over it.
+Only one turtle works the road at a time: two would wall each other in.
 
 ## Not built yet: fluids, and a mode for draining them
 

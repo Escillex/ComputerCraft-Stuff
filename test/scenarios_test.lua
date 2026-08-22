@@ -1267,7 +1267,7 @@ do
 end
 
 --------------------------------------------------------------------------
-print("\n=== filling refuses when something is sitting on the area ===")
+print("\n=== filling with something built over the area ===")
 --------------------------------------------------------------------------
 do
   -- Nothing outside the area may be broken, so with a ceiling resting on it
@@ -1309,24 +1309,23 @@ do
   table.insert(coord.console, "start")
   sim.run(40000, function() return not w.alive end)
 
-  local log = table.concat(coord.log, "\n")
-  check(log:find("something is sitting on top of the area", 1, true) ~= nil,
-    "it said what was wrong, on the coordinator")
-
-  -- Whatever it managed must be right, and it must not have quietly left a
-  -- half-filled area behind.
-  local wrong = 0
+  local air, wrong, gaps = 0, 0, {}
   for x = box.minX, box.maxX do
     for y = box.minY, box.maxY do
       for z = box.minZ, box.maxZ do
         local b = sim.getBlock(x, y, z)
-        if b ~= nil and b ~= MATERIAL and b:find("minecraft:") ~= 1 then
+        if b == nil then
+          air = air + 1
+          if #gaps < 8 then gaps[#gaps + 1] = ("%d,%d,%d"):format(x, y, z) end
+        elseif b ~= MATERIAL then
           wrong = wrong + 1
         end
       end
     end
   end
-  check(wrong == 0, "and left nothing odd behind")
+  if #gaps > 0 then print("        gaps: " .. table.concat(gaps, "  ")) end
+  check(air == 0, ("it filled every block with no sky above (%d empty)"):format(air))
+  check(wrong == 0, ("and all of it is the right block (%d wrong)"):format(wrong))
 
   local broken = 0
   for _, r in ipairs(roof) do

@@ -33,6 +33,7 @@ local depotTypes = {}   -- block ids of whatever is attached, for turtles to loo
 local depotHolder       -- only one turtle uses the chest at a time
 local depotSince
 local mode = "clear"    -- "clear" empties the area, "fill" makes it solid
+local spine             -- the row kept open as a road while filling
 local material          -- the block id fill mode lays down
 local depotSeeker       -- the one turtle sent to find the store
 local depotSeekerSince
@@ -54,6 +55,8 @@ local function buildCells()
     end
   end
 end
+
+local refreshSpine   -- set once findSpine exists, below
 
 local function buildBox()
   local a, b = corners[1], corners[2]
@@ -147,6 +150,7 @@ local function restore()
   running = saved.running or false
   if box then
     buildCells()
+    refreshSpine()
     if saved.marks then
       applyCells(saved.marks)
     else
@@ -183,24 +187,100 @@ end
 
 -- Give out the nearest workable cell, which keeps each turtle in its own
 -- corner of the area instead of all of them chasing the same scan order.
+-- Which edge of the area the store sits off. That row is left open as a
+-- road until everything else is solid: with a ceiling over the area there
+-- is nowhere else to travel, and crossing a finished column takes its top
+-- block out on the way past.
+-- The edge the store is actually beyond, not merely the nearest-numbered
+-- one: a store off the east side can sit at a z that falls inside the
+-- area's own range, and measuring each axis on its own would then pick a
+-- north or south edge and send everybody the wrong way home.
+local function findSpine()
+  if not box or not depot then return nil end
+  local d = depot.dock
+  local sides = {}
+
+  if d.x > box.maxX then
+    sides[#sides + 1] = { axis = "x", value = box.maxX, gap = d.x - box.maxX }
+  elseif d.x < box.minX then
+    sides[#sides + 1] = { axis = "x", value = box.minX, gap = box.minX - d.x }
+  end
+  if d.z > box.maxZ then
+    sides[#sides + 1] = { axis = "z", value = box.maxZ, gap = d.z - box.maxZ }
+  elseif d.z < box.minZ then
+    sides[#sides + 1] = { axis = "z", value = box.minZ, gap = box.minZ - d.z }
+  end
+
+  -- Standing inside the area's own footprint: there is no edge to leave by.
+  if #sides == 0 then return nil end
+
+  local best = sides[1]
+  for _, side in ipairs(sides) do
+    if side.gap < best.gap then best = side end
+  end
+  return { axis = best.axis, value = best.value }
+end
+
+local function onSpine(cell)
+  if not spine then return false end
+  if spine.axis == "x" then return cell.x == spine.value end
+  return cell.z == spine.value
+end
+
+-- How far a column sits from the spine, along the axis that matters.
+local function fromSpine(cell)
+  if spine.axis == "x" then return math.abs(cell.x - spine.value) end
+  return math.abs(cell.z - spine.value)
+end
+
+local SPINE_LAST = 1e9
+
+-- Work out the road again whenever the area or the store moves.
+refreshSpine = function()
+  spine = findSpine()
+end
+
 -- Clearing hands out whatever is nearest the turtle, which keeps each of
--- them working its own corner. Filling cannot: a finished column is solid,
--- so a turtle has to be able to walk home over ground nobody has filled
--- yet. Giving out the column furthest from the store first keeps every
--- filled column beyond every unfilled one, and walking towards the store is
--- then always walking over open ground.
+-- them working its own corner.
+--
+-- Filling cannot: a finished column is solid, so turtles can only travel
+-- over ground nobody has filled. Every row is worked from its far end in
+-- towards the spine, which leaves the half of each row nearest the spine
+-- open for as long as that row has work left - so the way to any column is
+-- along the spine and then out along its own row, and never across
+-- anything finished. The spine itself goes last, furthest end first, walked
+-- in by a single turtle backing up towards the store.
 local function cellScore(cell, from)
-  if mode == "fill" and depot then
-    return -(math.abs(cell.x - depot.dock.x) + math.abs(cell.z - depot.dock.z))
+  if mode == "fill" and spine and depot then
+    if onSpine(cell) then
+      local home = math.abs(cell.x - depot.dock.x) + math.abs(cell.z - depot.dock.z)
+      return SPINE_LAST - home
+    end
+    return -fromSpine(cell)
   end
   if not from then return 0 end
   return math.abs(cell.x - from.x) + math.abs(cell.z - from.z)
 end
 
+-- Two turtles on the spine would wall each other in, since it is one row
+-- wide and each of them fills the ground behind the other.
+local function spineTaken(exceptId)
+  for id, t in pairs(turtles) do
+    if id ~= exceptId and t.cell and t.state ~= "missing" and onSpine(t.cell) then
+      return true
+    end
+  end
+  return false
+end
+
 local function grantCell(id, from)
   local best, bestDistance
   for _, cell in ipairs(order) do
-    if cell.state == "free" and not tooClose(cell, id) then
+    local usable = cell.state == "free" and not tooClose(cell, id)
+    if usable and mode == "fill" and spine and onSpine(cell) and spineTaken(id) then
+      usable = false
+    end
+    if usable then
       local distance = cellScore(cell, from)
       if not best or distance < bestDistance then
         best, bestDistance = cell, distance
@@ -273,6 +353,7 @@ local function handle(id, msg)
       type = common.WELCOME, version = common.VERSION,
       box = box, depot = depot, coordPos = myPos, running = running,
       depotTypes = depotTypes, mode = mode, material = material,
+      spine = spine,
     }, msg.nonce)
 
   elseif msg.type == common.MARK then
@@ -284,6 +365,7 @@ local function handle(id, msg)
     local note
     if corners[1] and corners[2] then
       buildBox()
+      refreshSpine()
       running = false
       local w, h, d = boxSize()
       note = ("area is %d x %d x %d (%d columns) - run 'start' when the turtles are ready")
@@ -358,7 +440,7 @@ local function handle(id, msg)
       entry.cell = { x = cell.x, z = cell.z }
       entry.state = "mining"
       reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z },
-        mode = mode, material = material }, msg.nonce)
+        mode = mode, material = material, spine = spine }, msg.nonce)
       save()
     else
       -- Everything left is either taken or too near another turtle.
@@ -418,6 +500,7 @@ local function handle(id, msg)
         or depot.dock.z ~= msg.depot.dock.z
       depot = msg.depot
       depotSeeker, depotSeekerSince = nil, nil
+      refreshSpine()
       writeNow()
       if moved then
         print("resupply store found at " .. common.formatPos(depot.store))
@@ -518,6 +601,10 @@ local function cmdStatus()
   print("depot: " .. (depot and common.formatPos(depot.store) or "not found yet"))
   print("mode: " .. mode .. (mode == "fill"
     and (" with " .. (material or "NOTHING SET")) or ""))
+  if mode == "fill" and spine then
+    print(("road: %s=%d, kept open until the rest is solid")
+      :format(spine.axis, spine.value))
+  end
   if not box then
     print("area: not marked - run 'flatten mark1' and 'flatten mark2' on a turtle")
     return

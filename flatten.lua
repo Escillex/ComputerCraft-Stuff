@@ -34,6 +34,8 @@ local box, depot, coordId, coordPos
 local depotTypes = {}   -- block ids the coordinator says its store is
 local mode = "clear"    -- what the coordinator wants done with a column
 local material          -- the block id to fill with, when filling
+local spine             -- the row kept open as a road while filling
+local skyOverhead       -- whether there is room to travel above the area
 local myCell
 local state = "starting"
 
@@ -844,6 +846,72 @@ end
 -- Filling
 --------------------------------------------------------------------------
 
+-- The route to a column while filling: out to the road, along it to the
+-- column's own row, then out along that row. Never a diagonal shortcut,
+-- because a shortcut is exactly what crosses a column already finished -
+-- and crossing one means digging its top block out to get through.
+--
+-- It holds because every row is worked from its far end inwards, so the
+-- half of a row nearest the road is still open for as long as that row has
+-- anything left to do.
+local function goToViaSpine(cx, cz, travelY, ceiling)
+  if not spine then return goTo(cx, box.maxY, cz, travelY, ceiling) end
+
+  local onRoad = (spine.axis == "x" and cx == spine.value)
+              or (spine.axis == "z" and cz == spine.value)
+
+  -- Which side of the road the world is: the far side from the area, which
+  -- is the side the store is on.
+  local outward = (spine.axis == "x")
+    and (spine.value == box.maxX and 1 or -1)
+    or  (spine.value == box.maxZ and 1 or -1)
+
+  local legs
+  if onRoad then
+    -- The road is filled last and cannot be walked along once it is being
+    -- filled - stepping back onto it would dig up the very column just
+    -- sealed. So it is approached from outside the area instead, along the
+    -- open lane between the area and the store, and stepped into sideways.
+    if spine.axis == "x" then
+      legs = {
+        { spine.value + outward, pos.z },
+        { spine.value + outward, cz },
+        { cx, cz },
+      }
+    else
+      legs = {
+        { pos.x, spine.value + outward },
+        { cx, spine.value + outward },
+        { cx, cz },
+      }
+    end
+  elseif spine.axis == "x" then
+    legs = {
+      { spine.value, pos.z },   -- back to the road along the row we are on
+      { spine.value, cz },      -- along the road to the right row
+      { cx, cz },               -- out along that row
+    }
+  else
+    legs = {
+      { pos.x, spine.value },
+      { cx, spine.value },
+      { cx, cz },
+    }
+  end
+
+  -- Down to the road first, not just up to it. This is the way used when
+  -- there is no sky over the area, which means the turtle has very likely
+  -- just tried the high road and is now sitting above a ceiling it cannot
+  -- break. Coming down is safe: outside the area there is nothing it is
+  -- allowed to dig, so a descent either finds air or stops.
+  if travelY then goToY(travelY) end
+  for _, leg in ipairs(legs) do
+    local ok, why = goToXZ(leg[1], leg[2], travelY, ceiling)
+    if not ok then return false, why end
+  end
+  return goToY(box.maxY)
+end
+
 local function selectMaterial()
   if not material then return false end
   local wanted = material:lower()
@@ -952,15 +1020,31 @@ local function fillCell(cell)
   -- of somebody's floor, and then the only way across is at the area's own
   -- top, through the columns still to do - which is exactly where the
   -- furthest-first ordering leaves open ground.
-  local ok, why = goTo(cell.x, box.maxY, cell.z, box.maxY + 1, box.maxY + 1)
+  -- Over the top of the area where there is sky for it, since a finished
+  -- column is solid and crossing one at its own height would take the top
+  -- off it. Where something is built over the area there is no room up
+  -- there, and then the way across is the road: out to the open row, along
+  -- it, and out along this column's own row, over ground that has to be dug
+  -- anyway.
+  --
+  -- Which of the two applies is not something to guess at halfway across -
+  -- a turtle that starts over the top and finds a ceiling in the way ends
+  -- up stranded on the roof of the job. So the road is used until the
+  -- turtle has stood in a column and looked up once, and from then on it
+  -- knows.
+  local ok, why
+  if skyOverhead then
+    ok, why = goTo(cell.x, box.maxY, cell.z, box.maxY + 1, box.maxY + 1)
+  end
   if not ok then
-    -- No road above the area means crossing it at its own top, and that
-    -- means walking through columns already finished and taking their top
-    -- block out on the way past. Filling would quietly leave holes, which
-    -- is worse than not filling at all, so say so and stop.
-    trouble("cannot fill: something is sitting on top of the area, and I "
-      .. "cannot get above it. clear the space over it first.")
-    return "blocked", "no room above the area to work in"
+    ok, why = goToViaSpine(cell.x, cell.z, box.maxY, box.maxY)
+  end
+  if not ok then return "blocked", why end
+
+  if skyOverhead == nil then
+    skyOverhead = not turtle.detectUp()
+    print(skyOverhead and "there is sky over the area - going over the top"
+      or "something is over the area - working along the road")
   end
 
   while pos.y > box.minY do
@@ -1050,6 +1134,7 @@ local function workerLoop()
         myCell = reply.cell
         mode = reply.mode or mode
         material = reply.material or material
+        spine = reply.spine or spine
         print(("%s %d,%d"):format(mode == "fill" and "fill" or "cell",
           myCell.x, myCell.z))
       end
@@ -1226,6 +1311,7 @@ local function cmdWork()
   depotTypes = welcome.depotTypes or depotTypes
   mode = welcome.mode or mode
   material = welcome.material
+  spine = welcome.spine
   if not box then
     giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end
