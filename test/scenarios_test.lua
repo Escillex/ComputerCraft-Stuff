@@ -1672,6 +1672,53 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== turning the floor off ===")
+--------------------------------------------------------------------------
+do
+  -- Capping a hole under a cleared column is the one thing a turtle does
+  -- outside the marked area. It is on by default because a floor is
+  -- usually what you want, but it can be switched off, and then nothing at
+  -- all is laid outside what was marked.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+
+  -- Open ground under every column.
+  local holes = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, box.minY - 1, z, nil)
+      holes[#holes + 1] = { x = x, z = z }
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 290, name = "nofloor", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "floor off")
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local capped = 0
+  for _, h in ipairs(holes) do
+    if sim.getBlock(h.x, box.minY - 1, h.z) ~= nil then capped = capped + 1 end
+  end
+  check(capped == 0,
+    ("nothing was laid under the area (%d of %d holes capped)")
+      :format(capped, #holes))
+  check(cleared(sim, box) == 0,
+    ("and the area was still cleared (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

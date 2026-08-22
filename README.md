@@ -61,8 +61,11 @@ There is exactly one exception, and only when **clearing**: a column that
 bottoms out over a cave gets capped, with a block laid one below the area
 so you are left with a floor rather than a hole. It only ever fills thin
 air and never replaces anything - that is what the stack of dirt turtles
-hold back is for. **Filling never does this**: it fills the area down to
-its own bottom and leaves whatever is underneath alone.
+hold back is for. `floor off` on the coordinator turns it off, and then
+nothing whatsoever is laid or broken outside the marked area.
+
+**Filling never does this**: it fills the area down to its own bottom and
+leaves whatever is underneath as it found it.
 
 If a turtle cannot find a way round, it says so and carries on mining
 rather than tunnelling.
@@ -75,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22s (turtle 7)
+flatten 2026-08-22t (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -147,6 +150,7 @@ everything else. `start` refuses and says so.
 | `list` | every turtle: state, position, when it was last heard from |
 | `locate <id>` | where one turtle is (**even if it has gone quiet**) and the last problem it reported |
 | `status` | area, progress, and where the chest is |
+| `floor <on\|off>` | cap holes under a cleared area (on by default), or leave them |
 | `retry` | put written-off columns back in the pool and have another go |
 | `clear` | forget the area so you can mark a new one |
 | `exit` | quit |

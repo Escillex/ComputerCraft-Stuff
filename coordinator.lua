@@ -35,6 +35,7 @@ local depotSince
 local mode = "clear"    -- "clear" empties the area, "fill" makes it solid
 local spine             -- the row kept open as a road while filling
 local material          -- the block id fill mode lays down
+local floorPatch = true -- cap a cleared column that bottoms out over a cave
 local depotSeeker       -- the one turtle sent to find the store
 local depotSeekerSince
 local SEEK_TIMEOUT = 90 -- before giving the errand to somebody else
@@ -118,7 +119,7 @@ local function writeNow()
   lastSaved = os.clock()
   common.saveState(STATE_FILE, {
     corners = corners, box = box, depot = depot, running = running,
-    mode = mode, material = material,
+    mode = mode, material = material, floorPatch = floorPatch,
     marks = encodeCells(),
   })
 end
@@ -147,6 +148,7 @@ local function restore()
   depot = saved.depot
   mode = saved.mode or "clear"
   material = saved.material
+  if saved.floorPatch ~= nil then floorPatch = saved.floorPatch end
   running = saved.running or false
   if box then
     buildCells()
@@ -353,7 +355,7 @@ local function handle(id, msg)
       type = common.WELCOME, version = common.VERSION,
       box = box, depot = depot, coordPos = myPos, running = running,
       depotTypes = depotTypes, mode = mode, material = material,
-      spine = spine,
+      spine = spine, floorPatch = floorPatch,
     }, msg.nonce)
 
   elseif msg.type == common.MARK then
@@ -440,7 +442,8 @@ local function handle(id, msg)
       entry.cell = { x = cell.x, z = cell.z }
       entry.state = "mining"
       reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z },
-        mode = mode, material = material, spine = spine }, msg.nonce)
+        mode = mode, material = material, spine = spine,
+        floorPatch = floorPatch }, msg.nonce)
       save()
     else
       -- Everything left is either taken or too near another turtle.
@@ -601,6 +604,10 @@ local function cmdStatus()
   print("depot: " .. (depot and common.formatPos(depot.store) or "not found yet"))
   print("mode: " .. mode .. (mode == "fill"
     and (" with " .. (material or "NOTHING SET")) or ""))
+  if mode == "clear" then
+    print("floor: " .. (floorPatch and "capping holes underneath"
+      or "leaving holes underneath open"))
+  end
   if mode == "fill" and spine then
     print(("road: %s=%d, kept open until the rest is solid")
       :format(spine.axis, spine.value))
@@ -685,6 +692,22 @@ local function cmdMaterial(rest)
   print("filling with " .. material .. " - keep the store stocked with it")
 end
 
+local function cmdFloor(rest)
+  local want = (rest or ""):lower()
+  if want ~= "on" and want ~= "off" then
+    print("usage: floor <on|off>   (currently " .. (floorPatch and "on" or "off") .. ")")
+    print("  on   cap a cleared column that bottoms out over a cave, laying")
+    print("       one block below the area so you get a floor not a hole")
+    print("  off  break nothing and place nothing outside the marked area,")
+    print("       and leave any holes in the ground open")
+    return
+  end
+  floorPatch = (want == "on")
+  writeNow()
+  print(floorPatch and "holes in the floor will be capped"
+    or "nothing will be laid outside the area - holes stay open")
+end
+
 local function cmdRetry()
   if not order then
     print("no area marked yet")
@@ -720,6 +743,7 @@ local function cmdHelp()
   print("status         area, progress and depot")
   print("mode <c|f>     clear the area out, or fill it in")
   print("material <id>  what to fill it with")
+  print("floor <on|off> cap holes under a cleared area, or leave them")
   print("retry          put the written-off columns back in the pool")
   print("clear          forget the area and start over")
   print("exit           quit the coordinator")
@@ -747,6 +771,7 @@ local function commandLoop()
     elseif verb == "status" then cmdStatus()
     elseif verb == "mode" then cmdMode(rest)
     elseif verb == "material" then cmdMaterial(rest)
+    elseif verb == "floor" then cmdFloor(rest)
     elseif verb == "retry" then cmdRetry()
     elseif verb == "clear" then cmdClear()
     elseif verb == "help" then cmdHelp()

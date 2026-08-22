@@ -36,6 +36,7 @@ local mode = "clear"    -- what the coordinator wants done with a column
 local material          -- the block id to fill with, when filling
 local spine             -- the row kept open as a road while filling
 local skyOverhead       -- whether there is room to travel above the area
+local floorPatch = true -- whether to cap a hole under a cleared column
 local myCell
 local state = "starting"
 
@@ -832,7 +833,7 @@ local function digCell(cell)
     if not moved then return "blocked", reason end
   end
 
-  if not turtle.detectDown() and selectFill() then
+  if floorPatch and not turtle.detectDown() and selectFill() then
     turtle.placeDown()
     turtle.select(1)
   end
@@ -1186,6 +1187,7 @@ local function workerLoop()
         mode = reply.mode or mode
         material = reply.material or material
         spine = reply.spine or spine
+        if reply.floorPatch ~= nil then floorPatch = reply.floorPatch end
         print(("%s %d,%d"):format(mode == "fill" and "fill" or "cell",
           myCell.x, myCell.z))
       end
@@ -1363,6 +1365,7 @@ local function cmdWork()
   mode = welcome.mode or mode
   material = welcome.material
   spine = welcome.spine
+  if welcome.floorPatch ~= nil then floorPatch = welcome.floorPatch end
   if not box then
     giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end
