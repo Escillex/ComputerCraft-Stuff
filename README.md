@@ -40,6 +40,11 @@ update all
    or after the job starts, and you can add more at any time.
 4. On the coordinator, type `start`.
 
+The first thing the fleet does is find the store. No column is handed out
+until somebody has been and found it, so turtles always know where they are
+heading before they start filling up. If the coordinator sits there saying
+it is still looking, the store is not somewhere a turtle can reach.
+
 ## What it will and will not break
 
 **The marked area is the only thing turtles will ever break.** Not a block
@@ -62,7 +67,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22k (turtle 7)
+flatten 2026-08-22l (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run

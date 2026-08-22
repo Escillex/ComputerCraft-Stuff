@@ -301,6 +301,16 @@ local function handle(id, msg)
       return
     end
 
+    -- Nothing is handed out until somebody has been and found the store.
+    -- Turtles need to know where they are heading before they start filling
+    -- their inventories, and in fill mode the order columns are worked in
+    -- is measured from the store, so there is no order at all without it.
+    if not depot then
+      entry.state = "finding store"
+      reply(id, { type = common.NO_CELL, findDepot = true }, msg.nonce)
+      return
+    end
+
     local cell = grantCell(id, msg.pos)
     if cell then
       entry.cell = { x = cell.x, z = cell.z }
@@ -481,12 +491,14 @@ local function cmdStart()
     print("mark the area first: 'flatten mark1' and 'flatten mark2' on a turtle")
     return
   end
-  if not depot then
-    print("note: no resupply chest found yet - the first turtle will look for one")
-  end
   running = true
   writeNow()
-  print("started - turtles will pick up work on their next request")
+  if depot then
+    print("started - turtles will pick up work on their next request")
+  else
+    print("started - no store found yet, so the first turtle goes and finds")
+    print("one before any digging begins. watch for 'resupply store found'.")
+  end
 end
 
 local function cmdClear()

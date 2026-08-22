@@ -319,23 +319,26 @@ local function measureFacing()
   if not start then return false, "no GPS signal - is the satellite cluster running?" end
   pos = start
 
-  local function tryStep(allowDig)
+  -- Nothing gets broken here. This runs before the coordinator has said
+  -- where the job is, so there is no area to be inside of yet, and a turtle
+  -- that helped itself to a block to get its bearings would be breaking
+  -- something nobody asked it to touch. If it is walled in it climbs, and
+  -- if it cannot climb either it says so and stops.
+  local function tryStep()
     for _ = 1, 4 do
-      if not turtle.detect() then
-        if turtle.forward() then return true end
-      elseif allowDig then
-        local _, info = turtle.inspect()
-        if not isProtectedBlock(info.name) and turtle.dig() then
-          if turtle.forward() then return true end
-        end
-      end
+      if not turtle.detect() and turtle.forward() then return true end
       turtle.turnRight()
     end
     return false
   end
 
-  if not (tryStep(false) or tryStep(true)) then
-    return false, "boxed in - cannot move to work out which way I face"
+  local climbed = 0
+  while not tryStep() do
+    if climbed >= 8 or turtle.detectUp() or not turtle.up() then
+      return false, "walled in - I need a clear block beside or above me to start"
+    end
+    climbed = climbed + 1
+    pos.y = pos.y + 1
   end
 
   local after = gpsPos()
@@ -696,6 +699,11 @@ local function depotRun()
     state = "resupplying"
     ok, why = useDepot()
 
+    -- Say where the store is whenever we have just used it. A turtle can
+    -- know from a note on its own disk while the coordinator does not know
+    -- at all, and the coordinator holds back work until somebody tells it.
+    if ok then tell({ type = common.DEPOT_FOUND, depot = depot }) end
+
     -- A docking spot that cannot be reached any more is worse than none at
     -- all, because it will go on failing forever. Forget it and look again
     -- next time: the store may have been rebuilt, or the note may have come
@@ -801,6 +809,14 @@ local function workerLoop()
       elseif reply.type == common.JOB_DONE then
         print("job finished - nothing left to clear")
         return
+      elseif reply.type == common.NO_CELL and reply.findDepot then
+        -- No work goes out until the store has been found, so go and find
+        -- it. The token means only one turtle is off looking at a time.
+        local ok, why = depotRun()
+        if not ok then
+          trouble("could not find the resupply store: " .. tostring(why))
+          sleep(5)
+        end
       elseif reply.type == common.NO_CELL then
         state = "parked"
         parkOutOfTheWay()

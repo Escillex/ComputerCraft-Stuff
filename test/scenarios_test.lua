@@ -942,6 +942,64 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== the store is found before any digging starts ===")
+--------------------------------------------------------------------------
+do
+  -- Turtles should know where they are heading before they start filling
+  -- themselves up, so no column goes out until somebody has been and found
+  -- the store.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Take the store away, so it cannot be found however hard they look.
+  local storePos = { x = coordPos.x + 1, y = coordPos.y, z = coordPos.z }
+  sim.setBlock(storePos.x, storePos.y, storePos.z, nil)
+
+  local crew = {}
+  for i = 1, 3 do
+    local w = sim.addMachine({ id = 180 + i, name = "t" .. (180 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 400)
+
+  -- Not "no block was broken": a turtle walking through the area on its way
+  -- somewhere else will legitimately break one, and that is inside the job.
+  -- What must not happen is any column being handed out.
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  local before = table.concat(coord.log, "\n")
+  local doneBlind = tonumber(before:match("columns: (%d+) done"))
+  check(doneBlind == 0,
+    ("no column was given out while the store was unknown (%s done)")
+      :format(tostring(doneBlind)))
+  check(before:find("no store found yet", 1, true) ~= nil,
+    "and start said that was why")
+
+  -- Put it back, and the job should get going by itself.
+  sim.setBlock(storePos.x, storePos.y, storePos.z, "minecraft:chest")
+  sim.run(20000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    "once it was there they found it")
+  check(cleared(sim, box) == 0,
+    ("and got the job done (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
