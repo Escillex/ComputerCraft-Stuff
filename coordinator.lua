@@ -32,6 +32,8 @@ local depot             -- chest/dock positions, once a turtle has found it
 local depotTypes = {}   -- block ids of whatever is attached, for turtles to look for
 local depotHolder       -- only one turtle uses the chest at a time
 local depotSince
+local mode = "clear"    -- "clear" empties the area, "fill" makes it solid
+local material          -- the block id fill mode lays down
 local depotSeeker       -- the one turtle sent to find the store
 local depotSeekerSince
 local SEEK_TIMEOUT = 90 -- before giving the errand to somebody else
@@ -113,6 +115,7 @@ local function writeNow()
   lastSaved = os.clock()
   common.saveState(STATE_FILE, {
     corners = corners, box = box, depot = depot, running = running,
+    mode = mode, material = material,
     marks = encodeCells(),
   })
 end
@@ -139,6 +142,8 @@ local function restore()
   corners = saved.corners or {}
   box = saved.box
   depot = saved.depot
+  mode = saved.mode or "clear"
+  material = saved.material
   running = saved.running or false
   if box then
     buildCells()
@@ -178,14 +183,25 @@ end
 
 -- Give out the nearest workable cell, which keeps each turtle in its own
 -- corner of the area instead of all of them chasing the same scan order.
+-- Clearing hands out whatever is nearest the turtle, which keeps each of
+-- them working its own corner. Filling cannot: a finished column is solid,
+-- so a turtle has to be able to walk home over ground nobody has filled
+-- yet. Giving out the column furthest from the store first keeps every
+-- filled column beyond every unfilled one, and walking towards the store is
+-- then always walking over open ground.
+local function cellScore(cell, from)
+  if mode == "fill" and depot then
+    return -(math.abs(cell.x - depot.dock.x) + math.abs(cell.z - depot.dock.z))
+  end
+  if not from then return 0 end
+  return math.abs(cell.x - from.x) + math.abs(cell.z - from.z)
+end
+
 local function grantCell(id, from)
   local best, bestDistance
   for _, cell in ipairs(order) do
     if cell.state == "free" and not tooClose(cell, id) then
-      local distance = 0
-      if from then
-        distance = math.abs(cell.x - from.x) + math.abs(cell.z - from.z)
-      end
+      local distance = cellScore(cell, from)
       if not best or distance < bestDistance then
         best, bestDistance = cell, distance
       end
@@ -256,7 +272,7 @@ local function handle(id, msg)
     reply(id, {
       type = common.WELCOME, version = common.VERSION,
       box = box, depot = depot, coordPos = myPos, running = running,
-      depotTypes = depotTypes,
+      depotTypes = depotTypes, mode = mode, material = material,
     }, msg.nonce)
 
   elseif msg.type == common.MARK then
@@ -341,7 +357,8 @@ local function handle(id, msg)
     if cell then
       entry.cell = { x = cell.x, z = cell.z }
       entry.state = "mining"
-      reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z } }, msg.nonce)
+      reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z },
+        mode = mode, material = material }, msg.nonce)
       save()
     else
       -- Everything left is either taken or too near another turtle.
@@ -499,6 +516,8 @@ end
 local function cmdStatus()
   print("coordinator " .. os.getComputerID() .. " at " .. common.formatPos(myPos))
   print("depot: " .. (depot and common.formatPos(depot.store) or "not found yet"))
+  print("mode: " .. mode .. (mode == "fill"
+    and (" with " .. (material or "NOTHING SET")) or ""))
   if not box then
     print("area: not marked - run 'flatten mark1' and 'flatten mark2' on a turtle")
     return
@@ -518,6 +537,23 @@ local function cmdStart()
     print("mark the area first: 'flatten mark1' and 'flatten mark2' on a turtle")
     return
   end
+  if mode == "fill" then
+    if not material then
+      print("nothing to fill with - try: material minecraft:cobblestone")
+      return
+    end
+    -- Filling works outwards-in towards the store, so the store has to be
+    -- outside the area. Standing inside it, "towards the store" stops being
+    -- a direction that is safe to walk in.
+    if depot and depot.dock.x >= box.minX and depot.dock.x <= box.maxX
+       and depot.dock.z >= box.minZ and depot.dock.z <= box.maxZ then
+      print("the store is inside the marked area - move it out, or mark a")
+      print("smaller area. filling works back towards it, and it would be")
+      print("filled in along with everything else.")
+      return
+    end
+  end
+
   running = true
   writeNow()
   if depot then
@@ -534,6 +570,34 @@ end
 -- already dug. Usually whatever stopped them has since gone - a turtle that
 -- was in the way, a chunk that was not loaded, a wall you have since taken
 -- down - so it is worth another go.
+local function cmdMode(rest)
+  local want = (rest or ""):lower()
+  if want ~= "clear" and want ~= "fill" then
+    print("usage: mode <clear|fill>")
+    print("  clear  empty the marked area out (what it does by default)")
+    print("  fill   make the marked area solid, out of 'material'")
+    return
+  end
+  mode = want
+  writeNow()
+  print("mode is now " .. mode)
+  if mode == "fill" and not material then
+    print("set what to fill it with first: material minecraft:cobblestone")
+  end
+end
+
+local function cmdMaterial(rest)
+  local want = (rest or ""):match("^%s*(%S+)%s*$")
+  if not want then
+    print("usage: material <block id>, e.g. material minecraft:cobblestone")
+    if material then print("currently: " .. material) end
+    return
+  end
+  material = want
+  writeNow()
+  print("filling with " .. material .. " - keep the store stocked with it")
+end
+
 local function cmdRetry()
   if not order then
     print("no area marked yet")
@@ -567,6 +631,8 @@ local function cmdHelp()
   print("list           every turtle: state, position, last seen")
   print("locate <id>    where one turtle is, even if it has gone quiet")
   print("status         area, progress and depot")
+  print("mode <c|f>     clear the area out, or fill it in")
+  print("material <id>  what to fill it with")
   print("retry          put the written-off columns back in the pool")
   print("clear          forget the area and start over")
   print("exit           quit the coordinator")
@@ -592,6 +658,8 @@ local function commandLoop()
     elseif verb == "list" then cmdList()
     elseif verb == "locate" then cmdLocate(rest)
     elseif verb == "status" then cmdStatus()
+    elseif verb == "mode" then cmdMode(rest)
+    elseif verb == "material" then cmdMaterial(rest)
     elseif verb == "retry" then cmdRetry()
     elseif verb == "clear" then cmdClear()
     elseif verb == "help" then cmdHelp()

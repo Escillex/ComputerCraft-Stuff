@@ -68,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22p (turtle 7)
+flatten 2026-08-22q (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -98,6 +98,40 @@ mark the corners again.
 
 Every computer has to be on the same version before the job will run, which
 is what the version line on startup is for.
+
+## Filling an area instead of clearing it
+
+The same fleet can fill the marked area solid instead of emptying it:
+
+```
+> mode fill
+> material minecraft:cobblestone
+> start
+```
+
+`mode clear` puts it back. Turtles pick the change up on their next column,
+so there is nothing to restart. Keep the store stocked with the material -
+turtles fetch it on the same trips they already make, and anything they dig
+out that happens to be the same block goes straight back in, so filling
+stone with stone costs almost nothing.
+
+Filling replaces what is there rather than working round it, so it deals
+with water and lava for nothing: a block laid into a fluid displaces it.
+
+**The area needs open sky above it.** A finished column is solid, so
+turtles travel over their own work; with something built directly on top of
+the area there is nowhere to travel and they would have to cross it at its
+own height, taking the top off columns already done. Rather than fill badly
+and call it finished, a turtle says so on the coordinator and stops:
+
+```
+turtle 7: cannot fill: something is sitting on top of the area, and I
+cannot get above it. clear the space over it first.
+```
+
+The store also has to be outside the area, for the same reason - filling
+works inwards towards it, and it would be filled in along with everything
+else. `start` refuses and says so.
 
 ## Coordinator commands
 

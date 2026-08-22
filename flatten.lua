@@ -32,6 +32,8 @@ local STEP_PATIENCE = 20      -- seconds to give something living to move on
 local pos, facing             -- absolute world position and facing index
 local box, depot, coordId, coordPos
 local depotTypes = {}   -- block ids the coordinator says its store is
+local mode = "clear"    -- what the coordinator wants done with a column
+local material          -- the block id to fill with, when filling
 local myCell
 local state = "starting"
 
@@ -265,7 +267,7 @@ end
 -- progress, and climb over only when both are shut. Height gained that way
 -- is given back as soon as there is floor to drop to, so the turtle does
 -- not end up crawling home along the top of a mountain.
-local function goToXZ(x, z, floorY)
+local function goToXZ(x, z, floorY, ceiling)
   local climbs, lastWhy = 0, "blocked"
   while pos.x ~= x or pos.z ~= z do
     local options = {}
@@ -281,7 +283,13 @@ local function goToXZ(x, z, floorY)
     end
 
     if not moved then
-      if climbs >= 32 then return false, lastWhy end
+      -- Climbing over things is how a turtle gets anywhere without breaking
+      -- what is in the way, but not when it is heading somewhere with a
+      -- ceiling on it. Going up out of the area when something solid sits
+      -- on top of it means never getting back down again.
+      if climbs >= 32 or (ceiling and pos.y >= ceiling) then
+        return false, lastWhy
+      end
       climbs = climbs + 1
       local climbed, climbWhy = moveUp()
       if not climbed then return false, climbWhy or lastWhy end
@@ -294,15 +302,18 @@ end
 
 -- Travel to a position, doing the horizontal leg at travelY so turtles do
 -- not wander through each other's columns at odd heights.
-local function goTo(x, y, z, travelY)
+local function goTo(x, y, z, travelY, ceiling)
   if travelY then
-    -- Only ever climb to the travel height, never drop to it: dropping
-    -- means burrowing down through whatever is underneath, which outside
-    -- the marked area is not ours to move.
-    local ok, why = goToY(math.max(travelY, pos.y))
-    if not ok then return false, why end
+    -- Climb to the travel height, never drop to it. Height gained is height
+    -- gained over something in the way, and coming back down to a nominal
+    -- height puts the turtle back on the wrong side of whatever it just
+    -- got over.
+    --
+    -- The height is a preference either way: one that cannot get up there
+    -- carries on from wherever it got to rather than giving up on the spot.
+    goToY(math.max(travelY, pos.y))
   end
-  local ok, why = goToXZ(x, z, travelY)
+  local ok, why = goToXZ(x, z, travelY, ceiling)
   if not ok then return false, why end
   return goToY(y)
 end
@@ -561,6 +572,50 @@ end
 -- The shortest a route could possibly be. Real ones are longer: they climb
 -- to the travel height, go round whatever will not move and come back down
 -- again, so nothing should budget on this figure alone.
+local MATERIAL_SLOTS = 8   -- half the inventory, leaving room for spoil
+
+local function materialSlots()
+  if not material then return 0 end
+  local wanted, n = material:lower(), 0
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name:lower() == wanted then n = n + 1 end
+  end
+  return n
+end
+
+-- Load up with whatever we are filling with. Same walk as the fuel hunt:
+-- pull stacks out, keep the ones that are the right thing, hand the rest
+-- straight back.
+local function takeMaterial(dir)
+  if not material then return false end
+  local suck, drop = SUCK[dir or "forward"], DROP[dir or "forward"]
+  local wanted = material:lower()
+  local held = {}
+
+  for slot = 1, 16 do
+    if materialSlots() >= MATERIAL_SLOTS then break end
+    if turtle.getItemCount(slot) == 0 then
+      turtle.select(slot)
+      if not suck(64) then break end
+      local item = turtle.getItemDetail(slot)
+      if not (item and item.name:lower() == wanted) then
+        -- Hold onto it while we keep looking. The store fills up with spoil
+        -- as the job goes on, so the thing we came for can be a long way
+        -- down it, and every free slot is worth using to dig it out.
+        held[#held + 1] = slot
+      end
+    end
+  end
+
+  for _, slot in ipairs(held) do
+    turtle.select(slot)
+    drop()
+  end
+  turtle.select(1)
+  return materialSlots() > 0
+end
+
 local function tripCost(target)
   return math.abs(pos.x - target.x) + math.abs(pos.y - target.y) + math.abs(pos.z - target.z)
 end
@@ -660,15 +715,31 @@ local function useDepot()
   if not ok then return false, why end
   if dir == "forward" then turnTo(depot.facing) end
 
-  if not dumpInventory(dir, fillSlot()) then
+  -- Hand over the spoil but hold on to what we are filling with.
+  local keep = fillSlot()
+  if material then
+    local wanted = material:lower()
+    for slot = 1, 16 do
+      local item = turtle.getItemDetail(slot)
+      if item and item.name:lower() == wanted then keep = slot break end
+    end
+  end
+  if not dumpInventory(dir, keep) then
     trouble("the resupply store is FULL - empty it or I cannot keep mining")
   end
   if not takeFuel(tankTarget(), dir) and fuel() < reserveFrom(pos) * 2 then
     trouble("not enough fuel in the resupply store - put coal in it")
   end
-  -- Leave with something to patch floors with, even if that means taking
-  -- back a stack of the dirt just handed over.
-  takeFill(dir)
+  if mode == "fill" then
+    -- Leave with a load of whatever we are filling with.
+    if not takeMaterial(dir) then
+      trouble("no " .. tostring(material) .. " in the store - I cannot fill without it")
+    end
+  else
+    -- Leave with something to patch floors with, even if that means taking
+    -- back a stack of the dirt just handed over.
+    takeFill(dir)
+  end
 
   -- Get off the dock before handing the store on, so the next turtle in the
   -- queue is not walking into this one. Always upwards: when the dock is the
@@ -769,6 +840,154 @@ local function digCell(cell)
   return "done"
 end
 
+--------------------------------------------------------------------------
+-- Filling
+--------------------------------------------------------------------------
+
+local function selectMaterial()
+  if not material then return false end
+  local wanted = material:lower()
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name:lower() == wanted then
+      turtle.select(slot)
+      return true
+    end
+  end
+  return false
+end
+
+-- Which way home is. Columns are given out furthest-from-the-store first,
+-- so the neighbour in this direction has not been filled yet and can be
+-- stood in.
+local function towardStore()
+  local target = (depot and depot.dock) or coordPos
+  if not target then return nil end
+  local dx, dz = target.x - pos.x, target.z - pos.z
+  if math.abs(dx) >= math.abs(dz) then
+    return dx >= 0 and 1 or 3
+  end
+  return dz >= 0 and 2 or 0
+end
+
+local function layInto(place)
+  if not selectMaterial() then return false, "out of " .. tostring(material) end
+  local ok = place()
+  turtle.select(1)
+  return ok
+end
+
+-- Get off the column just filled and put the last block in behind, since
+-- there is no standing on a block while you place it.
+--
+-- Straight up is the way whenever there is room, which there usually is:
+-- one step and lay it back down. Only when something is sitting on the area
+-- does the turtle have to go sideways instead, and then only onto ground
+-- nobody has filled yet - stepping into a finished column would mean
+-- digging it back out to get in, which just moves the hole along.
+local function retreatAndSeal()
+  if not turtle.detectUp() and moveUp() then
+    local laid, why = layInto(turtle.placeDown)
+    if laid then return true end
+    return false, why or "could not lay the top block from above"
+  end
+
+  -- Towards the store is the one direction guaranteed not to be filled
+  -- yet, because that is the order the columns go out in - so it is worth
+  -- digging into. Any other direction might be a column already finished,
+  -- and cutting into one of those to get out just carries the hole along
+  -- with us, so those are only used if they are already open.
+  -- Never back into a column that is already done. Getting in would mean
+  -- digging its top block out, and the block we lay goes into the column we
+  -- came from - so the hole simply moves along, and the last one in the
+  -- chain stays open. A neighbour made of the stuff we are filling with has
+  -- been done already.
+  local function open(dir)
+    turnTo(dir)
+    local present, info = turtle.inspect()
+    if not present then return true end
+    return not (material and info.name:lower() == material:lower())
+  end
+
+  local home = towardStore()
+  if home and open(home) then
+    turnTo(home)
+    if moveForward() then
+      turnTo((facing + 2) % 4)
+      local laid, why = layInto(turtle.place)
+      if laid then return true end
+      if why then return false, why end
+      turnTo((facing + 2) % 4)
+    end
+  end
+
+  for dir = 0, 3 do
+    if dir ~= home and open(dir) then
+      turnTo(dir)
+      if not turtle.detect() and moveForward() then
+        turnTo((facing + 2) % 4)
+        local laid, why = layInto(turtle.place)
+        if laid then return true end
+        if why then return false, why end
+        turnTo((facing + 2) % 4)
+      end
+    end
+  end
+  return false, "nowhere to step to seal the column"
+end
+
+-- Make one column solid, top to bottom. Dig it out first - a block cannot
+-- be placed where another already is - then climb back out laying material
+-- underfoot, and seal the last block from the neighbour on the way home.
+-- Whatever comes out that matches the material goes straight back in, so
+-- filling stone with stone costs almost nothing from the store.
+local function fillCell(cell)
+  state = "filling"
+  if not material then return "blocked", "nothing to fill with" end
+
+  -- Two ways to get there, and which one works depends on the sky. One
+  -- above the area is the good road: a finished column is solid, and coming
+  -- back down to the area's own top would mean digging out work already
+  -- done. But with something built over the area that road is the underside
+  -- of somebody's floor, and then the only way across is at the area's own
+  -- top, through the columns still to do - which is exactly where the
+  -- furthest-first ordering leaves open ground.
+  local ok, why = goTo(cell.x, box.maxY, cell.z, box.maxY + 1, box.maxY + 1)
+  if not ok then
+    -- No road above the area means crossing it at its own top, and that
+    -- means walking through columns already finished and taking their top
+    -- block out on the way past. Filling would quietly leave holes, which
+    -- is worse than not filling at all, so say so and stop.
+    trouble("cannot fill: something is sitting on top of the area, and I "
+      .. "cannot get above it. clear the space over it first.")
+    return "blocked", "no room above the area to work in"
+  end
+
+  while pos.y > box.minY do
+    if inventoryFull() then return "full" end
+    local moved, reason = moveDown()
+    if not moved then return "blocked", reason end
+  end
+
+  while pos.y < box.maxY do
+    if not selectMaterial() then return "empty" end
+    local climbed, climbWhy = moveUp()
+    if not climbed then return "blocked", climbWhy end
+    if not turtle.placeDown() then
+      turtle.select(1)
+      return "blocked", "could not lay a block"
+    end
+    turtle.select(1)
+  end
+
+  local sealed, sealWhy = retreatAndSeal()
+  if not sealed then
+    if sealWhy and sealWhy:find("out of", 1, true) then return "empty" end
+    return "blocked", sealWhy
+  end
+  return "done"
+end
+
 local function heartbeatLoop()
   while true do
     sleep(common.HEARTBEAT_INTERVAL)
@@ -829,7 +1048,10 @@ local function workerLoop()
         sleep(3)
       elseif reply.type == common.CELL then
         myCell = reply.cell
-        print(("cell %d,%d"):format(myCell.x, myCell.z))
+        mode = reply.mode or mode
+        material = reply.material or material
+        print(("%s %d,%d"):format(mode == "fill" and "fill" or "cell",
+          myCell.x, myCell.z))
       end
     end
 
@@ -850,7 +1072,22 @@ local function workerLoop()
     end
 
     if myCell then
-      local status, detail = digCell(myCell)
+      local status, detail
+      if mode == "fill" then
+        status, detail = fillCell(myCell)
+      else
+        status, detail = digCell(myCell)
+      end
+
+      -- Out of what it is meant to be laying down: go and get more, and
+      -- come back to the same column.
+      if status == "empty" then
+        trouble("out of " .. tostring(material) .. " - put some in the store")
+        local got = depotRun()
+        if not got then sleep(5) end
+        status = "full"
+      end
+
       if status == "done" then
         tell({ type = common.CELL_DONE, cell = myCell })
         myCell = nil
@@ -987,6 +1224,8 @@ local function cmdWork()
   depot = normaliseDepot(welcome.depot) or depot
   coordPos = welcome.coordPos
   depotTypes = welcome.depotTypes or depotTypes
+  mode = welcome.mode or mode
+  material = welcome.material
   if not box then
     giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end

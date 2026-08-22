@@ -639,6 +639,28 @@ local function makeEnv(m)
         return true
       end,
 
+      place = function()
+        local s = m.slots[m.selected]
+        if not s then return false end
+        local x, y, z = ahead()
+        if occupant(x, y, z) then return false end
+        blocks[key(x, y, z)] = s.name
+        s.count = s.count - 1
+        if s.count <= 0 then m.slots[m.selected] = nil end
+        return true
+      end,
+
+      placeUp = function()
+        local s = m.slots[m.selected]
+        if not s then return false end
+        local x, y, z = above()
+        if occupant(x, y, z) then return false end
+        blocks[key(x, y, z)] = s.name
+        s.count = s.count - 1
+        if s.count <= 0 then m.slots[m.selected] = nil end
+        return true
+      end,
+
       drop     = function() return dropInto("forward") end,
       dropDown = function() return dropInto("down") end,
       dropUp   = function() return dropInto("up") end,

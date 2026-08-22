@@ -1207,6 +1207,137 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== filling an area solid ===")
+--------------------------------------------------------------------------
+do
+  -- A pitted, half-empty lump of ground turned into solid cobblestone.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Hollow a good deal of it out, so filling has real gaps to close as well
+  -- as existing blocks to replace.
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do
+        if (x + y + z) % 3 ~= 0 then sim.setBlock(x, y, z, nil) end
+      end
+    end
+  end
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 12 do
+    chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 230, name = "filler", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local wrong, air = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("no gaps left in the area (%d empty)"):format(air))
+  check(wrong == 0, ("and all of it is the right block (%d wrong)"):format(wrong))
+  check(#sim.violations() == 0, "nothing protected was dug")
+  print(("        %d blocks placed, %d moves"):format(
+    (box.maxX - box.minX + 1) * (box.maxY - box.minY + 1) * (box.maxZ - box.minZ + 1),
+    w.moves))
+end
+
+--------------------------------------------------------------------------
+print("\n=== filling refuses when something is sitting on the area ===")
+--------------------------------------------------------------------------
+do
+  -- Nothing outside the area may be broken, so with a ceiling resting on it
+  -- a turtle has to cross the area at its own top - straight through
+  -- columns already finished, taking their top block out on the way past.
+  -- That leaves holes nobody asked for, so it has to refuse and say why
+  -- rather than fill badly and report success.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local roof = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")
+      roof[#roof + 1] = { x = x, z = z }
+    end
+  end
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 12 do
+    chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  sim.setBlock(box.maxX, box.maxY, box.maxZ, nil)
+  local w = sim.addMachine({ id = 240, name = "roofedfill", isTurtle = true,
+    pos = { x = box.maxX, y = box.maxY, z = box.maxZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("something is sitting on top of the area", 1, true) ~= nil,
+    "it said what was wrong, on the coordinator")
+
+  -- Whatever it managed must be right, and it must not have quietly left a
+  -- half-filled area behind.
+  local wrong = 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b ~= nil and b ~= MATERIAL and b:find("minecraft:") ~= 1 then
+          wrong = wrong + 1
+        end
+      end
+    end
+  end
+  check(wrong == 0, "and left nothing odd behind")
+
+  local broken = 0
+  for _, r in ipairs(roof) do
+    if sim.getBlock(r.x, box.maxY + 1, r.z) ~= "minecraft:obsidian" then
+      broken = broken + 1
+    end
+  end
+  check(broken == 0, ("and did not touch the roof (%d of %d)"):format(broken, #roof))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
