@@ -285,12 +285,16 @@ second costs infinite water everywhere in the world.
 
 | | |
 |---|---|
-| `mode drain fast` | plug and unplug in one motion, a block at a time. What it does today. Correct for lava, wrong for water, cheapest of the three. |
-| `mode drain plug` | plug every source and leave the blocks. The pool ends as a slab of the material. Correct for water, and needs no bookkeeping at all, because nothing ever comes back out. The one to use when the area is going to be cleared anyway. |
-| `mode drain precise` | plug the whole body, then dig the plugs back out. Correct for water and leaves the place as it was. The only variant needing the per-column plug records. |
+| `mode drain fast` | plug and unplug in one motion, a block at a time. What it does today, and the default. Correct for lava, wrong for water. |
+| `mode drain precise` | plug the whole body, then dig the plugs back out once none of it is wet. Correct for water, and leaves the place as it was. |
 
-Everything below applies to `plug` and `precise`. `fast` is the existing
-behaviour and stays as it is.
+Everything below is `precise`. `fast` is the existing behaviour and stays
+as it is.
+
+(A third - plug the sources and simply leave the blocks - was considered
+and set aside. It is water-correct for none of the bookkeeping, since
+nothing ever comes back out, and worth remembering if `precise` turns out
+to be a slog.)
 
 
 
