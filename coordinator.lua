@@ -35,6 +35,20 @@ local depotSince
 local mode = "clear"    -- clear empties the area, fill makes it solid, drain takes the lava out
 local drained = 0       -- sources plugged during this pass
 local passes = 0        -- sweeps made so far
+
+-- How draining goes about it.
+--
+--   fast     plug a source and pull the plug straight back out, one block
+--            at a time. Right for lava. Wrong for water, which re-sources
+--            from two orthogonal neighbours the moment a hole appears, so
+--            the pool closes up behind the turtle and nothing is ever
+--            removed at all.
+--
+--   precise  plug the whole body first and leave every block in, then dig
+--            them all back out once none of it is wet. Nothing can
+--            re-source a hole when there is no source left to do it.
+local drainHow = "fast"
+local drainPhase = "plug"   -- 'precise' only: plug everything, then unplug
 local spine             -- the row kept open as a road while filling
 local material          -- the block id fill mode lays down
 -- Off unless asked for. Capping a hole under a cleared column means laying
@@ -467,6 +481,7 @@ local function handle(id, msg)
       box = box, depot = depot, coordPos = myPos, running = running,
       depotTypes = depotTypes, mode = mode, material = material,
       spine = spine, floorPatch = floorPatch,
+      drainHow = drainHow, drainPhase = drainPhase,
     }, msg.nonce)
 
   elseif msg.type == common.MARK then
@@ -506,14 +521,33 @@ local function handle(id, msg)
     -- whole sweep turns nothing up.
     if mode == "drain" and running and counts.free == 0 and counts.claimed == 0 then
       passes = passes + 1
-      if drained > 0 then
-        print(("pass %d plugged %d - going round again"):format(passes, drained))
-        drained = 0
+      local function sweepAgain()
         for _, cell in ipairs(order) do
           cell.state, cell.attempts, cell.retries = "free", 0, 0
         end
         writeNow()
         counts = tally()
+      end
+
+      if drained > 0 then
+        print(("pass %d plugged %d - going round again"):format(passes, drained))
+        drained = 0
+        sweepAgain()
+      elseif drainHow == "precise" and drainPhase == "plug" then
+        -- A whole sweep found no source anywhere, so the body is solid.
+        -- Only now is it safe to take the plugs out: there is nothing left
+        -- that could re-source the holes they leave.
+        local n = 0
+        for _, cell in ipairs(order) do
+          if cell.plugs then n = n + #cell.plugs end
+        end
+        drainPhase = "unplug"
+        if n == 0 then
+          print("nothing was plugged - nothing to take back out")
+        else
+          print(("everything is plugged - going back for the %d block(s)"):format(n))
+          sweepAgain()
+        end
       end
     end
 
@@ -571,7 +605,13 @@ local function handle(id, msg)
       entry.state = "mining"
       reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z },
         mode = mode, material = material, spine = spine,
-        floorPatch = floorPatch }, msg.nonce)
+        floorPatch = floorPatch, drainHow = drainHow, drainPhase = drainPhase,
+        -- Which blocks in this column were plugs. Only the turtle that laid
+        -- them knows, and only until it hands the column back - so the
+        -- coordinator keeps the list and gives it out again for the pass
+        -- that takes them out. Digging anything else would break the one
+        -- promise draining makes.
+        plugs = cell.plugs }, msg.nonce)
       save()
     else
       -- Nothing that can be given out: what is left is either being worked
@@ -588,6 +628,28 @@ local function handle(id, msg)
 
   elseif msg.type == common.CELL_DONE then
     if msg.plugged and msg.plugged > 0 then drained = drained + msg.plugged end
+    if msg.cell then
+      local cell = cells[common.cellKey(msg.cell.x, msg.cell.z)]
+      if cell and drainPhase == "unplug" then
+        -- They are out now, so stop asking anyone to take them out.
+        cell.plugs = nil
+      elseif cell and msg.plugs and #msg.plugs > 0 then
+        -- Add to what is already noted rather than replacing it. Plugging
+        -- sweeps the area until a whole pass finds nothing, so a column
+        -- gets visited again after it is solid and reports laying nothing -
+        -- and overwriting on that visit threw away the record of every
+        -- block it had laid on the first one.
+        local seen = {}
+        cell.plugs = cell.plugs or {}
+        for _, y in ipairs(cell.plugs) do seen[y] = true end
+        for _, y in ipairs(msg.plugs) do
+          if not seen[y] then
+            cell.plugs[#cell.plugs + 1] = y
+            seen[y] = true
+          end
+        end
+      end
+    end
     releaseCell(id, msg.cell, "done")
     entry.cell = nil
     entry.state = "idle"
@@ -803,6 +865,10 @@ local function cmdStart()
   end
 
   drained, passes = 0, 0
+  drainPhase = "plug"
+  if order then
+    for _, cell in ipairs(order) do cell.plugs = nil end
+  end
   running = true
   writeNow()
   if depot then
@@ -820,18 +886,37 @@ end
 -- was in the way, a chunk that was not loaded, a wall you have since taken
 -- down - so it is worth another go.
 local function cmdMode(rest)
-  local want = (rest or ""):lower()
+  local want, how = (rest or ""):lower():match("^(%S*)%s*(%S*)$")
+  want = want or ""
   if want ~= "clear" and want ~= "fill" and want ~= "drain" then
-    print("usage: mode <clear|fill|drain>")
+    print("usage: mode <clear|fill|drain [fast|precise]>")
     print("  clear  empty the marked area out (what it does by default)")
     print("  fill   make the marked area solid, out of 'material'")
     print("  drain  take the lava and water out and leave the rest alone")
+    print("    fast     plug and unplug a block at a time. lava only:")
+    print("             water closes back up behind the turtle")
+    print("    precise  plug the whole lot, then take the plugs out. slower,")
+    print("             wants a store of blocks, and works on water")
     return
+  end
+
+  if want == "drain" then
+    if how == "fast" or how == "precise" then
+      drainHow = how
+    elseif how ~= "" then
+      print("drain takes 'fast' or 'precise', not '" .. how .. "'")
+      return
+    end
+    drainPhase = "plug"
   end
   local was = mode
   mode = want
   writeNow()
-  print("mode is now " .. mode)
+  print("mode is now " .. mode .. (mode == "drain" and (" " .. drainHow) or ""))
+  if mode == "drain" and drainHow == "fast" then
+    print("  fast: right for lava. water will close back up behind it -")
+    print("  use 'mode drain precise' for that")
+  end
 
   -- A column that is done is only done for the job it was done for.
   -- Filling an area solid and then switching to clear used to hand out no

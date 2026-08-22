@@ -38,6 +38,8 @@ local pos, facing             -- absolute world position and facing index
 local box, depot, coordId, coordPos
 local depotTypes = {}   -- block ids the coordinator says its store is
 local mode = "clear"    -- what the coordinator wants done with a column
+local drainHow = "fast"     -- 'fast' or 'precise', when draining
+local drainPhase = "plug"   -- 'precise' only: laying plugs, or taking them out
 local material          -- the block id to fill with, when filling
 local spine             -- the row kept open as a road while filling
 local skyOverhead       -- whether there is room to travel above the area
@@ -1292,6 +1294,81 @@ end
 -- Returns how many sources it plugged, so the coordinator knows whether
 -- another pass is worth making - draining a source lets what it was feeding
 -- run away, which uncovers more.
+-- Precise draining, first half: go down through the fluid to whatever is
+-- under it - nothing is dug, it simply moves through - and climb back out
+-- laying a block into every source on the way up.
+--
+-- It has to be that way round. placeDown fills the block the turtle would
+-- move into next, so plugging on the way down seals its own route after one
+-- block, and it may not dig back out.
+--
+-- The blocks stay. That is the entire point: a hole cannot be re-sourced by
+-- its neighbours if it is not a hole.
+local function plugColumn(cell)
+  state = "draining"
+  local laid = {}
+  if not goTo(cell.x, box.maxY, cell.z, box.maxY) then return laid, "cannot get there" end
+
+  -- Down as far as the fluid goes.
+  while pos.y > box.minY do
+    local present, info = turtle.inspectDown()
+    if present and not common.isFluid(info.name) then break end
+    if not moveDown() then break end
+  end
+
+  -- And up again, plugging. Move first, then look down: a turtle standing
+  -- in the fluid cannot plug the block it is standing in, so every level is
+  -- dealt with from the one above it. That includes the very top of the
+  -- area, which is why this goes one above the box before it stops.
+  while pos.y <= box.maxY do
+    if not moveUp() then break end
+    local below = pos.y - 1
+    if below >= box.minY and below <= box.maxY then
+      local present, info = turtle.inspectDown()
+      if present and common.isFluid(info.name) and common.isFluidSource(info) then
+        if not selectFill() then
+          turtle.select(1)
+          return laid, "nothing to plug with"
+        end
+        if turtle.placeDown() then laid[#laid + 1] = below end
+        turtle.select(1)
+      end
+    end
+  end
+
+  return laid
+end
+
+-- Second half, and only once every column has been through the first: dig
+-- the plugs back out, top to bottom. Only the blocks this laid - anything
+-- else was here before and draining breaks nothing.
+local function unplugColumn(cell, plugs)
+  state = "draining"
+  if not plugs or #plugs == 0 then return 0 end
+
+  -- One above the area, for the same reason plugging ends there: the top
+  -- block of the column can only be dug from above it. Settle for the top
+  -- of the area if there is no room, and whatever was laid up there stays.
+  local top = box.maxY + 1
+  if not goTo(cell.x, top, cell.z, top) then
+    if not goTo(cell.x, box.maxY, cell.z, box.maxY) then return 0 end
+  end
+
+  local wanted = {}
+  for _, y in ipairs(plugs) do wanted[y] = true end
+
+  local out = 0
+  while pos.y > box.minY do
+    if wanted[pos.y - 1] and turtle.detectDown() then
+      turtle.digDown()
+      out = out + 1
+    end
+    if not moveDown() then break end
+  end
+  goToY(box.maxY)
+  return out
+end
+
 local function drainCell(cell)
   state = "draining"
 
@@ -1724,7 +1801,10 @@ local function workerLoop()
         sleep(3)
       elseif reply.type == common.CELL then
         myCell = reply.cell
+        myCell.plugs = reply.plugs
         mode = reply.mode or mode
+        drainHow = reply.drainHow or drainHow
+        drainPhase = reply.drainPhase or drainPhase
         material = reply.material or material
         if type(material) == "string" then material = { material } end
         spine = reply.spine or spine
@@ -1754,6 +1834,25 @@ local function workerLoop()
       local status, detail, plugged
       if mode == "fill" then
         status, detail = fillCell(myCell)
+      elseif mode == "drain" and drainHow == "precise" then
+        if drainPhase == "unplug" then
+          plugged = 0
+          unplugColumn(myCell, myCell.plugs)
+          status = "done"
+        else
+          local laid, why = plugColumn(myCell)
+          myCell.plugs = laid
+          plugged = #laid
+          if why == "nothing to plug with" then
+            trouble("found a source and have nothing to plug it with - put"
+              .. " some dirt or cobble in the store")
+            if not depotRun() then sleep(5) end
+            status, detail = "blocked", "nothing to plug with"
+          else
+            status = "done"
+          end
+        end
+
       elseif mode == "drain" then
         local ranOut
         plugged, ranOut = drainCell(myCell)
@@ -1782,7 +1881,9 @@ local function workerLoop()
       end
 
       if status == "done" then
-        tell({ type = common.CELL_DONE, cell = myCell, plugged = plugged })
+        tell({ type = common.CELL_DONE, cell = myCell, plugged = plugged,
+               plugs = (mode == "drain" and drainPhase == "plug")
+                 and myCell.plugs or nil })
         myCell = nil
       elseif status == "full" then
         local ok = depotRun()
@@ -1959,6 +2060,8 @@ local function cmdWork()
   coordPos = welcome.coordPos
   depotTypes = welcome.depotTypes or depotTypes
   mode = welcome.mode or mode
+  drainHow = welcome.drainHow or drainHow
+  drainPhase = welcome.drainPhase or drainPhase
   material = welcome.material
   -- Older coordinators sent a single block rather than a list.
   if type(material) == "string" then material = { material } end

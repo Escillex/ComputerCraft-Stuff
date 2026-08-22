@@ -279,9 +279,9 @@ the current drain correct outright. Both were considered and dropped: the
 first needs a fluid simulator written before it could be trusted, and the
 second costs infinite water everywhere in the world.
 
-## Agreed design: drain, and how it is asked to work
+## Draining: fast and precise
 
-`drain` stays the mode. How it goes about it is an argument:
+Built. `drain` stays the mode; how it goes about it is an argument:
 
 | | |
 |---|---|
@@ -297,9 +297,6 @@ nothing ever comes back out, and worth remembering if `precise` turns out
 to be a slog.)
 
 
-
-Not built. Written down because it took a long conversation to arrive at
-and the reasoning is not obvious from any of the parts.
 
 **Plug every source, and take the plugs out only once they all are.**
 Removing sources one at a time in any order cannot drain a body of water: a
@@ -361,10 +358,35 @@ last one has finished phase 2. That per-column list is the only new state
 in any of this, and it is what makes it a piece of work rather than a
 tweak: the saved file keeps one character per column today.
 
-**Prerequisite: the simulator has to model fluid first.** It currently has
-none - no spread, no levels, no re-sourcing - so a working drain and a
-broken one produce identical test output. Writing this on top of that would
-be the silk-touch mistake a second time.
+**The simulator had to model fluid before any of this could be trusted.**
+It had none - no spread, no levels, no re-sourcing - so a working drain and
+a broken one produced identical output, which is why the water bug survived
+so long. `ccsim` now keeps the sources and works the whole field out again
+from them after every block that changes: falling costs nothing, sideways
+costs a level a block, water runs seven and lava three, and any flow with
+two orthogonal sources beside it becomes a source. Recomputing everything
+each time is wasteful and completely predictable, which is what is wanted
+from a stand-in.
+
+Measured on a 4x4 pool, once it could be measured at all:
+
+| | lava | water |
+|---|---|---|
+| `fast` | 0 left, 147 moves | **16 of 16 left**, 21,760 moves |
+| `precise` | 0 left, plugs recovered | 0 left, plugs recovered, 257 moves |
+
+The middle cell is the whole point: the fast drain does not merely cost
+more on water, it removes nothing at all and sweeps until something stops
+it.
+
+Two things caught while building it, both invisible without the fluid
+model. Plugging a column has to move up first and look down second, because
+a turtle cannot plug the block it is standing in - checking before moving
+misses the top level of every column, which in a two-tall area is the only
+level. And the record of what was plugged has to accumulate rather than
+replace: the sweep revisits a column after it is solid, reports laying
+nothing, and overwriting on that visit threw away the record of everything
+laid on the first.
 
 ## Draining needs a block to spend, and said nothing when it had none
 

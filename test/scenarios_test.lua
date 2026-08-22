@@ -2271,6 +2271,100 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== water closes back up behind a fast drain ===")
+--------------------------------------------------------------------------
+do
+  -- The difference between the two ways of draining, and the reason there
+  -- are two. Water re-sources from two orthogonal neighbours, so pulling a
+  -- plug out straight away leaves a hole the pool fills back in - the
+  -- turtle sweeps for ever and removes nothing. Lava never does this, which
+  -- is why 'fast' looked fine for so long.
+  local function drain(fluid, how)
+    local sim = freshSim()
+    local box = { minX = 100, maxX = 103, minY = 61, maxY = 62, minZ = 200, maxZ = 203 }
+
+    -- A walled hollow, so nothing runs off and the pool is what we say.
+    for x = box.minX - 1, box.maxX + 1 do
+      for z = box.minZ - 1, box.maxZ + 1 do
+        sim.setBlock(x, box.minY - 1, z, "minecraft:stone")
+        if x == box.minX - 1 or x == box.maxX + 1
+           or z == box.minZ - 1 or z == box.maxZ + 1 then
+          for y = box.minY, box.maxY + 1 do
+            sim.setBlock(x, y, z, "minecraft:stone")
+          end
+        end
+      end
+    end
+
+    local pool = {}
+    for x = box.minX, box.maxX do
+      for z = box.minZ, box.maxZ do
+        sim.setFluid(x, box.minY, z, fluid, 0)
+        pool[#pool + 1] = { x = x, y = box.minY, z = z }
+      end
+    end
+
+    local coordPos = { x = box.maxX + 3, y = box.maxY, z = box.minZ + 1 }
+    sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+    local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+    chest.size = 54
+    for _ = 1, 6 do
+      chest.slots[#chest.slots + 1] = { name = "minecraft:cobblestone", count = 64 }
+    end
+    for _ = 1, 4 do
+      chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 }
+    end
+
+    local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+      adjacentChest = { list = function() return {} end } })
+    sim.boot(coord, "coordinator", {})
+    sim.run(5)
+    markCorners(sim, box)
+
+    local w = sim.addMachine({ id = 5, name = how .. "-" .. fluid:gsub("minecraft:", ""),
+      isTurtle = true, pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ },
+      facing = 3, slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    sim.boot(w, "flatten", {})
+    table.insert(coord.console, "mode drain " .. how)
+    table.insert(coord.console, "start")
+    sim.run(120000, function() return not w.alive end)
+
+    local wet, plugs = 0, 0
+    for _, f in ipairs(pool) do
+      if sim.getFluid(f.x, f.y, f.z) then wet = wet + 1 end
+      if sim.getBlock(f.x, f.y, f.z) then plugs = plugs + 1 end
+    end
+    return wet, plugs, #pool, w
+  end
+
+  -- Lava works either way, and fast is cheaper.
+  local wet = drain("minecraft:lava", "fast")
+  check(wet == 0, ("fast drains lava (%d left)"):format(wet))
+
+  -- Water does not work at all the fast way. This is the bug.
+  local wetFast, _, total, fastTurtle = drain("minecraft:water", "fast")
+  check(wetFast == total,
+    ("and cannot touch water - the pool closes up behind it (%d of %d left)")
+      :format(wetFast, total))
+
+  -- Precise plugs the lot before taking anything out, so there is nothing
+  -- left to re-source the holes.
+  local wetSlow, plugsLeft, total2, slowTurtle = drain("minecraft:water", "precise")
+  check(wetSlow == 0, ("precise drains water (%d of %d left)"):format(wetSlow, total2))
+  check(plugsLeft == 0,
+    ("and takes every plug back out again (%d left behind)"):format(plugsLeft))
+  check(slowTurtle.moves < fastTurtle.moves,
+    ("in less work than the fast one wastes getting nowhere (%d moves against %d)")
+      :format(slowTurtle.moves, fastTurtle.moves))
+
+  -- And it still leaves lava alone properly.
+  local lavaWet, lavaPlugs = drain("minecraft:lava", "precise")
+  check(lavaWet == 0 and lavaPlugs == 0,
+    ("precise drains lava too, plugs and all (%d wet, %d plugs)")
+      :format(lavaWet, lavaPlugs))
+end
+
+--------------------------------------------------------------------------
 print("\n=== saying what to plug a source with ===")
 --------------------------------------------------------------------------
 do

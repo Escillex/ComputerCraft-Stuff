@@ -32,7 +32,15 @@ local violations = {}
 local function key(x, y, z) return x .. "," .. y .. "," .. z end
 
 function sim.setBlock(x, y, z, name)
-  if name then blocks[key(x, y, z)] = name else blocks[key(x, y, z)] = nil end
+  if name then
+    blocks[key(x, y, z)] = name
+    -- A block and a fluid cannot share a space, so laying one down puts
+    -- out whatever was there for good. This is what makes plugging work.
+    if sim.clearSource then sim.clearSource(x, y, z) end
+  else
+    blocks[key(x, y, z)] = nil
+  end
+  if sim.settle then sim.settle() end
 end
 
 function sim.getBlock(x, y, z) return blocks[key(x, y, z)] end
@@ -64,16 +72,138 @@ function sim.creatureAt(x, y, z) return creatures[key(x, y, z)] end
 -- Fluids: a turtle walks straight into them, detect does not see them, but
 -- inspect reports them with the level that says source from flow. Laying a
 -- block into one replaces it, which is the only way to be rid of it.
-local fluids = {}
+local fluids = {}          -- "x,y,z" -> { name, level }, worked out from
+local sources = {}         -- "x,y,z" -> name, which is what is really there
+
+-- How far each fluid runs from its source, and whether flowing blocks of it
+-- can turn back into sources. Water does, on two or more orthogonal
+-- neighbours; lava does not, which is the whole reason draining has looked
+-- fine on lava and gone round in circles on water.
+local FLUID = {
+  ["minecraft:water"] = { reach = 7, refills = true },
+  ["minecraft:lava"]  = { reach = 3, refills = false },
+}
+
+local function fluidKind(name)
+  return FLUID[name] or { reach = 7, refills = false }
+end
+
+-- The world has to stop somewhere. Without a bottom, water that runs off
+-- the edge of whatever floor a test laid down falls for ever.
+sim.floorY = -64
+local WET_CAP = 20000      -- and a pool that big is a runaway, not a test
+
+local function solidAt(x, y, z)
+  return blocks[key(x, y, z)] ~= nil
+end
+
+-- Work the whole fluid field out again from the sources. Wasteful and
+-- completely predictable, which is what is wanted from a stand-in: there is
+-- no incremental update to get subtly wrong, and a test world is small.
+--
+-- Water falls without weakening, spreads sideways losing a level a block,
+-- and stops at 'reach'. Then any flow with two orthogonal sources beside it
+-- becomes a source itself, which can let more flow reach further - so it
+-- goes round until nothing changes.
+local function settle()
+  if not next(sources) then
+    if next(fluids) then fluids = {} end
+    return
+  end
+
+  for _ = 1, 8 do          -- rounds of source conversion, bounded
+    fluids = {}
+    local frontier = {}
+    for k, name in pairs(sources) do
+      if not blocks[k] then
+        fluids[k] = { name = name, level = 0 }
+        frontier[#frontier + 1] = k
+      end
+    end
+
+    local spread = 0
+    while #frontier > 0 do
+      spread = spread + #frontier
+      if spread > WET_CAP then
+        error("ccsim: fluid ran away - " .. spread .. " blocks wet. "
+          .. "give the test a floor, or set sim.floorY", 0)
+      end
+      local next_frontier = {}
+      for _, k in ipairs(frontier) do
+        local here = fluids[k]
+        local x, y, z = k:match("(-?%d+),(-?%d+),(-?%d+)")
+        x, y, z = tonumber(x), tonumber(y), tonumber(z)
+        local reach = fluidKind(here.name).reach
+
+        local function wet(nx, ny, nz, level)
+          if ny < sim.floorY then return end
+          local nk = key(nx, ny, nz)
+          if blocks[nk] then return end
+          local was = fluids[nk]
+          if was and was.level <= level then return end
+          fluids[nk] = { name = here.name, level = level }
+          next_frontier[#next_frontier + 1] = nk
+        end
+
+        -- Down first, and falling costs nothing: what lands spreads out
+        -- from full strength again.
+        if not solidAt(x, y - 1, z) then
+          wet(x, y - 1, z, 0)
+        elseif here.level < reach then
+          -- Sideways only where there is something to run along.
+          wet(x + 1, y, z, here.level + 1)
+          wet(x - 1, y, z, here.level + 1)
+          wet(x, y, z + 1, here.level + 1)
+          wet(x, y, z - 1, here.level + 1)
+        end
+      end
+      frontier = next_frontier
+    end
+
+    -- Two orthogonal sources beside a flow, and the flow is a source too.
+    -- Diagonals do not count. This is what makes a pool close up behind
+    -- anything that takes sources out one at a time.
+    local made = false
+    for k, f in pairs(fluids) do
+      if f.level > 0 and fluidKind(f.name).refills and not sources[k] then
+        local x, y, z = k:match("(-?%d+),(-?%d+),(-?%d+)")
+        x, y, z = tonumber(x), tonumber(y), tonumber(z)
+        if solidAt(x, y - 1, z) or sources[key(x, y - 1, z)] then
+          local n = 0
+          for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+            if sources[key(x + d[1], y, z + d[2])] then n = n + 1 end
+          end
+          if n >= 2 then
+            sources[k] = f.name
+            made = true
+          end
+        end
+      end
+    end
+    if not made then return end
+  end
+end
+
+sim.settle = settle
+
+function sim.clearSource(x, y, z) sources[key(x, y, z)] = nil end
 
 function sim.setFluid(x, y, z, name, level)
-  fluids[key(x, y, z)] = name and { name = name, level = level or 0 } or nil
+  local k = key(x, y, z)
+  if name and (level or 0) == 0 then
+    sources[k] = name
+  else
+    sources[k] = nil
+  end
+  settle()
 end
 
 function sim.getFluid(x, y, z)
   local f = fluids[key(x, y, z)]
   return f and f.name, f and f.level
 end
+
+function sim.isSource(x, y, z) return sources[key(x, y, z)] end
 
 function sim.violation(msg)
   violations[#violations + 1] = msg
@@ -573,6 +703,7 @@ local function makeEnv(m)
       end
       blocks[key(x, y, z)] = nil
       addItem(sim.DROPS[name] or name)
+      settle()
       m.digs = m.digs + 1
       return true
     end
@@ -685,8 +816,9 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = below()
         if occupant(x, y, z) then return false end
-        fluids[key(x, y, z)] = nil
+        sources[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
+        settle()
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
         return true
@@ -697,8 +829,9 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = ahead()
         if occupant(x, y, z) then return false end
-        fluids[key(x, y, z)] = nil
+        sources[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
+        settle()
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
         return true
@@ -709,8 +842,9 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = above()
         if occupant(x, y, z) then return false end
-        fluids[key(x, y, z)] = nil
+        sources[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
+        settle()
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
         return true
@@ -809,7 +943,7 @@ end
 function sim.machines() return machines end
 function sim.reset()
   blocks, chests, machines, violations = {}, {}, {}, {}
-  fluids = {}
+  fluids, sources = {}, {}
   hosts, timers = {}, {}
   now, nextId, nextTimerId = 0, 0, 0
 end
