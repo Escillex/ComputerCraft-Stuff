@@ -16,7 +16,7 @@ for file in *.lua; do
 done
 echo "syntax ok"
 
-for suite in test/fleet_test.lua test/scenarios_test.lua test/update_test.lua; do
+for suite in test/fleet_test.lua test/scenarios_test.lua test/update_test.lua test/startup_test.lua; do
   echo
   echo "--- $suite ---"
   lua "$suite" || status=1

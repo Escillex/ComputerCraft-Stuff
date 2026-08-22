@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zd (turtle 7)
+flatten 2026-08-22ze (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -100,7 +100,8 @@ job carried on:
    then wait.
 2. On each turtle, hold **Ctrl+T** to stop it. If `startup.lua` is
    installed it will try to start again after ten seconds, so hold Ctrl+T
-   once more while it is waiting. Then `update all`.
+   once more while it is waiting. Then `update all`. (Version mismatch is
+   one of the things it will not keep retrying at ten seconds - see below.)
 3. On the coordinator, `exit`, then `update all`, then `coordinator`.
 4. `start`.
 
@@ -111,6 +112,26 @@ mark the corners again.
 
 Every computer has to be on the same version before the job will run, which
 is what the version line on startup is for.
+
+### A turtle that will not start
+
+`startup.lua` restarts a turtle that falls over, but most of the reasons a
+turtle will not start at all are ones only you can fix: no coal in it, no
+area marked yet, no coordinator running, a version that does not match. So
+it says the reason once and then waits longer each time the same thing is
+still wrong - ten seconds, then twenty, up to five minutes - instead of
+repeating itself every ten seconds until the reason has scrolled off the
+screen:
+
+```
+could not find the coordinator - is coordinator.lua running?
+trying again in 10s - Ctrl+T to stop
+trying again in 20s - Ctrl+T to stop
+```
+
+Fix the cause and it picks itself up within five minutes at worst, or hold
+Ctrl+T and run `flatten` yourself to get it going at once. If something
+*different* goes wrong it says so and goes straight back to trying quickly.
 
 ## Filling an area instead of clearing it
 

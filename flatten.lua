@@ -24,6 +24,11 @@ end
 local common = loadModule("common")
 
 local STATE_FILE = "flatten.state"
+-- Why the last run stopped, left for startup.lua to read. A turtle that
+-- cannot start usually cannot start for a reason a person has to deal
+-- with, and startup needs to tell "the same thing is still wrong" from
+-- "something else is wrong now".
+local STOP_FILE = "flatten.stopped"
 local FUEL_MARGIN = 150       -- fuel kept in hand on top of the trip home
 local STEP_ATTEMPTS = 32      -- tries before a step is called blocked
 local STEP_WAITS = 10         -- of those, how long to wait on another turtle
@@ -114,6 +119,19 @@ local function trouble(message)
   if message == lastTrouble and os.clock() - lastTroubleAt < 60 then return end
   lastTrouble, lastTroubleAt = message, os.clock()
   tell({ type = common.TROUBLE, message = message, pos = pos })
+end
+
+-- A turtle that cannot start is a turtle nobody is looking at. Say why on
+-- the coordinator before giving up, so 'list' answers the question rather
+-- than a walk out to wherever it is standing.
+local function giveUp(message)
+  trouble(message)
+  local ok, file = pcall(fs.open, STOP_FILE, "w")
+  if ok and file then
+    file.write(message)
+    file.close()
+  end
+  error(message, 0)
 end
 
 --------------------------------------------------------------------------
@@ -1579,11 +1597,11 @@ end
 
 local function connect()
   if not common.openModem() then
-    error("no modem attached - a turtle needs a wireless modem", 0)
+    giveUp("no modem attached - a turtle needs a wireless modem")
   end
   coordId = findCoordinator()
   if not coordId then
-    error("could not find the coordinator - is coordinator.lua running?", 0)
+    giveUp("could not find the coordinator - is coordinator.lua running?")
   end
 end
 
@@ -1693,14 +1711,6 @@ local function cmdStatus()
   else
     print("depot: not found yet")
   end
-end
-
--- A turtle that cannot start is a turtle nobody is looking at. Say why on
--- the coordinator before giving up, so 'list' answers the question rather
--- than a walk out to wherever it is standing.
-local function giveUp(message)
-  trouble(message)
-  error(message, 0)
 end
 
 local function cmdWork()

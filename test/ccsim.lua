@@ -759,7 +759,8 @@ end
 
 -- Load the repo's real scripts onto a machine and set one running.
 function sim.boot(m, program, args)
-  for _, name in ipairs({ "common.lua", "flatten", "coordinator", "reset", "update" }) do
+  for _, name in ipairs({ "common.lua", "flatten", "coordinator", "reset", "update",
+                          "startup.lua" }) do
     local source = name:match("%.lua$") and name or (name .. ".lua")
     local ok, src = pcall(readRepoFile, source)
     if ok then m.files[name] = src end
