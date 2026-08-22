@@ -153,7 +153,7 @@ local function mayBreakAt(x, y, z)
 
   return x >= box.minX and x <= box.maxX
      and z >= box.minZ and z <= box.maxZ
-     and y >= box.minY
+     and y >= box.minY and y <= box.maxY + 1
 end
 
 -- Never break anything of the same kind as the coordinator's store either,

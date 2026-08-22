@@ -727,6 +727,66 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a thin area with a build standing over it ===")
+--------------------------------------------------------------------------
+do
+  -- Marking two corners at the same height gives an area one block tall.
+  -- Anything built above it is not part of the job and must survive, even
+  -- though a turtle coming from above would find it quicker to punch
+  -- straight down through it.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 64, maxY = 64, minZ = 200, maxZ = 203 }
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, 64, z, "minecraft:dirt")
+      sim.setBlock(x, 63, z, "minecraft:stone")
+    end
+  end
+
+  -- Somebody's floor, five blocks up, directly over the whole area.
+  local roof = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, 69, z, "minecraft:oak_planks")
+      roof[#roof + 1] = { x = x, y = 69, z = z }
+    end
+  end
+
+  local coordPos = { x = box.maxX + 2, y = 64, z = box.minZ + 1 }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Deliberately started above the roof, the worst case: the short way in
+  -- is straight through it.
+  local w = sim.addMachine({ id = 150, name = "roofed", isTurtle = true,
+    pos = { x = box.minX, y = 72, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 8 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local broken = 0
+  for _, b in ipairs(roof) do
+    if not sim.getBlock(b.x, b.y, b.z) then broken = broken + 1 end
+  end
+  check(broken == 0,
+    ("the build above the area was left alone (%d of %d broken)")
+      :format(broken, #roof))
+  check(#sim.violations() == 0, "and nothing protected was dug")
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
