@@ -118,20 +118,18 @@ stone with stone costs almost nothing.
 Filling replaces what is there rather than working round it, so it deals
 with water and lava for nothing: a block laid into a fluid displaces it.
 
-**The area needs open sky above it.** A finished column is solid, so
-turtles travel over their own work; with something built directly on top of
-the area there is nowhere to travel and they would have to cross it at its
-own height, taking the top off columns already done. Rather than fill badly
-and call it finished, a turtle says so on the coordinator and stops:
+A finished column is solid, so turtles have to travel over ground nobody
+has filled yet. Where there is sky over the area they go over the top of
+their own work. Where something is built on it, one row is kept open as a
+road and every other row is filled from its far end inwards - so the way to
+any column is along the road and out along the open half of its own row.
+The road goes last, walked in by a single turtle backing towards the store.
 
-```
-turtle 7: cannot fill: something is sitting on top of the area, and I
-cannot get above it. clear the space over it first.
-```
+Nothing to set up: `status` shows which row is being kept open.
 
-The store also has to be outside the area, for the same reason - filling
-works inwards towards it, and it would be filled in along with everything
-else. `start` refuses and says so.
+The store does have to be **outside** the area. Filling works inwards
+towards it, so a store standing in the middle would be filled in along with
+everything else. `start` refuses and says so.
 
 ## Coordinator commands
 
