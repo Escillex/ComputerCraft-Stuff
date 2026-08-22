@@ -1923,6 +1923,63 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== clearing a decent-sized area under a ceiling ===")
+--------------------------------------------------------------------------
+do
+  -- Clearing needs no road: it opens the area up as it goes, so a finished
+  -- column is air you can walk through. But it is worked under the same
+  -- ceiling and by the same movement, so it wants checking at a size where
+  -- turtles have to travel across their own work to get anywhere.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 107, minY = 58, maxY = 64, minZ = 200, maxZ = 207 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local roof = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.maxY + 1, box.maxY + 3 do
+        sim.setBlock(x, y, z, "minecraft:obsidian")
+        roof[#roof + 1] = { x = x, y = y, z = z }
+      end
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 2 do
+    local w = sim.addMachine({ id = 330 + i, name = "c" .. (330 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+  sim.run(60000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+
+  for _, w in ipairs(crew) do
+    check(not w.crash, w.name .. " did not crash"
+      .. (w.crash and (": " .. tostring(w.crash)) or ""))
+  end
+  check(cleared(sim, box) == 0,
+    ("they cleared all %d columns under it (%d blocks left)")
+      :format((box.maxX - box.minX + 1) * (box.maxZ - box.minZ + 1), cleared(sim, box)))
+
+  local broken = 0
+  for _, r in ipairs(roof) do
+    if sim.getBlock(r.x, r.y, r.z) ~= "minecraft:obsidian" then broken = broken + 1 end
+  end
+  check(broken == 0, ("and the ceiling is untouched (%d of %d)"):format(broken, #roof))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
