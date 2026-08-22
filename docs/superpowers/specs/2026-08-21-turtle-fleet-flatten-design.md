@@ -183,6 +183,39 @@ how many turtles are worth running.
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
 
+## Not built yet: filling under a ceiling, by leaving a spine
+
+Filling needs open sky over the area and refuses without it. Sealing a
+column works with no headroom - back out sideways and place behind - but
+travel does not: with a ceiling on the area a turtle has to cross it at its
+own top, and crossing a finished column takes its top block out on the way
+past. It left twelve holes, all in the top layer, while reporting every
+column done.
+
+Routing round finished columns would need the coordinator to send turtles a
+map of what is done, and then real pathfinding over it. There is a simpler
+way that makes the route true by construction instead of finding it:
+
+**Leave one row open as a spine, and fill each row from its far end
+inward.** Any column is then reached by going along the spine to its row,
+then along the part of that row not yet filled - which is always the half
+nearest the spine, because rows fill outside-in. Nothing ever needs to
+cross a finished column. When every other row is solid, one turtle fills
+the spine itself, working from the far end back and retreating along the
+part still open, which is the ordinary sealing problem in one dimension.
+
+What it needs:
+
+- the coordinator ordering columns by row, far-to-near within a row, and
+  holding the spine back until everything else is done
+- the spine chosen as the row the store approaches from, so the last turtle
+  finishes next to it
+- turtles routing spine-then-row rather than the current greedy
+  along-x-then-along-z, which is what walks into finished columns
+- the last row handled by one turtle, since two would strand each other
+
+Worth doing before this is trusted on an area with anything built over it.
+
 ## Not built yet: fluids, and a mode for draining them
 
 Nothing deals with lava or water. A turtle walks through both without harm
