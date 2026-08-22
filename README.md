@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22x (turtle 7)
+flatten 2026-08-22y (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -167,6 +167,33 @@ counts them. The job still finishes; it just finishes with holes.
 Once whatever stopped them has gone, `retry` puts every written-off column
 back in the pool and `start` sends the fleet round again. Everything
 already dug stays dug.
+
+## Draining an area
+
+`mode drain` takes the lava and water out and leaves everything else where
+it is:
+
+```
+> mode drain
+> start
+```
+
+A draining turtle **breaks nothing at all** - not to reach a column, not on
+its way to the store. So it can only get at fluid it can already swim to,
+which is the fluid worth reaching: a pool, a flooded cave, a lava lake. It
+goes down each column as far as open space allows, plugs any source it
+finds, takes the plug straight back out, and moves on.
+
+It sweeps the area again and again until a whole sweep turns nothing up,
+since draining a source lets what it was feeding run away and that uncovers
+more:
+
+```
+pass 1 plugged 16 - going round again
+```
+
+Keep dirt in the store: every source costs a block to plug, even though the
+block comes straight back out.
 
 ## Lava and water
 

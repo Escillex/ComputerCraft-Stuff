@@ -32,7 +32,9 @@ local depot             -- chest/dock positions, once a turtle has found it
 local depotTypes = {}   -- block ids of whatever is attached, for turtles to look for
 local depotHolder       -- only one turtle uses the chest at a time
 local depotSince
-local mode = "clear"    -- "clear" empties the area, "fill" makes it solid
+local mode = "clear"    -- clear empties the area, fill makes it solid, drain takes the lava out
+local drained = 0       -- sources plugged during this pass
+local passes = 0        -- sweeps made so far
 local spine             -- the row kept open as a road while filling
 local material          -- the block id fill mode lays down
 local floorPatch = true -- cap a cleared column that bottoms out over a cave
@@ -389,6 +391,23 @@ local function handle(id, msg)
     -- the last column lands are told to knock off rather than being left
     -- asking for work that will never come.
     local counts = tally()
+
+    -- Draining a source lets whatever it was feeding run away, and that can
+    -- uncover more underneath. So the area is swept again and again until a
+    -- whole sweep turns nothing up.
+    if mode == "drain" and running and counts.free == 0 and counts.claimed == 0 then
+      passes = passes + 1
+      if drained > 0 then
+        print(("pass %d plugged %d - going round again"):format(passes, drained))
+        drained = 0
+        for _, cell in ipairs(order) do
+          cell.state, cell.attempts, cell.retries = "free", 0, 0
+        end
+        writeNow()
+        counts = tally()
+      end
+    end
+
     if counts.free == 0 and counts.claimed == 0 then
       if running then
         running = false
@@ -456,6 +475,7 @@ local function handle(id, msg)
     end
 
   elseif msg.type == common.CELL_DONE then
+    if msg.plugged and msg.plugged > 0 then drained = drained + msg.plugged end
     releaseCell(id, msg.cell, "done")
     entry.cell = nil
     entry.state = "idle"
@@ -653,6 +673,7 @@ local function cmdStart()
     end
   end
 
+  drained, passes = 0, 0
   running = true
   writeNow()
   if depot then
@@ -671,10 +692,11 @@ end
 -- down - so it is worth another go.
 local function cmdMode(rest)
   local want = (rest or ""):lower()
-  if want ~= "clear" and want ~= "fill" then
-    print("usage: mode <clear|fill>")
+  if want ~= "clear" and want ~= "fill" and want ~= "drain" then
+    print("usage: mode <clear|fill|drain>")
     print("  clear  empty the marked area out (what it does by default)")
     print("  fill   make the marked area solid, out of 'material'")
+    print("  drain  take the lava and water out and leave the rest alone")
     return
   end
   mode = want
@@ -746,7 +768,7 @@ local function cmdHelp()
   print("list           every turtle: state, position, last seen")
   print("locate <id>    where one turtle is, even if it has gone quiet")
   print("status         area, progress and depot")
-  print("mode <c|f>     clear the area out, or fill it in")
+  print("mode <c|f|d>   clear the area out, fill it in, or drain it")
   print("material <id>  what to fill it with")
   print("floor <on|off> cap holes under a cleared area, or leave them")
   print("retry          put the written-off columns back in the pool")

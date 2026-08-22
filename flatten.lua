@@ -149,6 +149,11 @@ local function samePlace(p, x, y, z)
 end
 
 local function mayBreakAt(x, y, z)
+  -- Draining takes the lava out and leaves everything else exactly where it
+  -- is, so a turtle doing it breaks nothing whatsoever - not on the way to a
+  -- column, not on the way to the store, not anywhere. That limits it to
+  -- fluid it can already swim to, which is the fluid worth reaching.
+  if mode == "drain" then return false end
   if not box then return false end
   -- The coordinator and its store are off limits wherever they stand, even
   -- inside the marked area. Their block ids are not something this script
@@ -936,6 +941,49 @@ local function digCell(cell)
 end
 
 --------------------------------------------------------------------------
+-- Draining
+--------------------------------------------------------------------------
+
+-- Go down a column as far as open space allows, plugging every source on
+-- the way. Nothing is dug: where the ground is solid the turtle simply
+-- stops, because there is no fluid there it could have reached anyway.
+--
+-- Returns how many sources it plugged, so the coordinator knows whether
+-- another pass is worth making - draining a source lets what it was feeding
+-- run away, which uncovers more.
+local function drainCell(cell)
+  state = "draining"
+
+  local plugged = 0
+  local ok = goTo(cell.x, box.maxY, cell.z, box.maxY)
+
+  if ok then
+    while pos.y > box.minY do
+      local present, info = turtle.inspectDown()
+
+      if present and common.isFluid(info.name) then
+        if common.isFluidSource(info) and selectFill() then
+          if turtle.placeDown() then
+            plugged = plugged + 1
+            -- Take the plug straight back out: the point is to be rid of
+            -- the lava, not to leave a pillar of dirt where it was.
+            turtle.digDown()
+          end
+          turtle.select(1)
+        end
+      elseif present then
+        break                  -- solid ground, and nothing to dig through
+      end
+
+      if not moveDown() then break end
+    end
+  end
+
+  goToY(box.maxY)
+  return plugged
+end
+
+--------------------------------------------------------------------------
 -- Filling
 --------------------------------------------------------------------------
 
@@ -1311,9 +1359,12 @@ local function workerLoop()
     end
 
     if myCell then
-      local status, detail
+      local status, detail, plugged
       if mode == "fill" then
         status, detail = fillCell(myCell)
+      elseif mode == "drain" then
+        plugged = drainCell(myCell)
+        status = "done"
       else
         status, detail = digCell(myCell)
       end
@@ -1328,7 +1379,7 @@ local function workerLoop()
       end
 
       if status == "done" then
-        tell({ type = common.CELL_DONE, cell = myCell })
+        tell({ type = common.CELL_DONE, cell = myCell, plugged = plugged })
         myCell = nil
       elseif status == "full" then
         local ok = depotRun()

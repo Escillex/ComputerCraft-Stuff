@@ -2041,6 +2041,90 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== draining a lava pool without digging the place up ===")
+--------------------------------------------------------------------------
+do
+  -- A pool of lava sitting in a hollow. Draining takes the lava out and
+  -- leaves everything else exactly where it is - no excavating, no floor
+  -- laid, nothing but the fluid gone.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 105, minY = 60, maxY = 64, minZ = 200, maxZ = 205 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Hollow the area out and pour lava into the bottom of it.
+  local stone, pool = {}, {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, nil) end
+      -- A rim of stone round the edge that must not be touched.
+      if x == box.minX or x == box.maxX or z == box.minZ or z == box.maxZ then
+        for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      else
+        sim.setFluid(x, box.minY, z, "minecraft:lava", 0)
+        pool[#pool + 1] = { x = x, y = box.minY, z = z }
+        sim.setFluid(x, box.minY + 1, z, "minecraft:lava", 3)
+      end
+    end
+  end
+
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Snapshot the rim now, after marking: standing the marker turtle in the
+  -- corners takes those two blocks out, and that is the harness doing it.
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do
+        if sim.getBlock(x, y, z) == "minecraft:stone" then
+          stone[#stone + 1] = { x = x, y = y, z = z }
+        end
+      end
+    end
+  end
+
+  local w = sim.addMachine({ id = 420, name = "drainer", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode drain")
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local left = 0
+  for _, f in ipairs(pool) do
+    if sim.getFluid(f.x, f.y, f.z) then left = left + 1 end
+  end
+  check(left == 0, ("the pool was drained (%d of %d sources left)"):format(left, #pool))
+
+  local disturbed = 0
+  for _, b in ipairs(stone) do
+    if sim.getBlock(b.x, b.y, b.z) ~= "minecraft:stone" then disturbed = disturbed + 1 end
+  end
+  check(disturbed == 0,
+    ("and the ground round it is untouched (%d of %d dug)"):format(disturbed, #stone))
+
+  local plugsLeft = 0
+  for _, f in ipairs(pool) do
+    if sim.getBlock(f.x, f.y, f.z) then plugsLeft = plugsLeft + 1 end
+  end
+  check(plugsLeft == 0,
+    ("and it took its plugs back out (%d left behind)"):format(plugsLeft))
+
+  local log = table.concat(coord.log, "\n")
+  print("        " .. (log:match("pass %d+ plugged %d+[^\n]*") or "(one pass)"))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
