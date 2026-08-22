@@ -385,11 +385,21 @@ local function goTo(x, y, z, travelY, ceiling)
   if box and pos.y > box.maxY then
     local outward = (pos.x - box.minX < box.maxX - pos.x)
       and box.minX - 1 or box.maxX + 1
-    if goToXZ(outward, pos.z) and goToY(y) then
-      local backOk, backWhy = goToXZ(x, z, travelY, ceiling)
-      if backOk then return goToY(y) end
-      return false, backWhy
+    local outOk, outWhy = goToXZ(outward, pos.z)
+    if outOk then
+      local dropped, dropWhy = goToY(y)
+      if dropped then
+        local backOk, backWhy = goToXZ(x, z, travelY, ceiling)
+        if backOk then return goToY(y) end
+        return false, backWhy
+      end
+      -- Report what is stopping it now, not the roof that turned the
+      -- journey into a detour in the first place. Another turtle standing
+      -- in the lane outside the area will move; blaming the ceiling instead
+      -- writes the column off as solid rock after three goes.
+      return false, dropWhy or downWhy
     end
+    return false, outWhy or downWhy
   end
 
   return false, downWhy
@@ -488,101 +498,36 @@ end
 -- Whether a block sits right against the coordinator. The store is the
 -- thing touching it, so anything further off is somebody else's chest and
 -- none of our business.
-local function touchesCoordinator(x, y, z)
+-- How far from the coordinator its store is allowed to be: two blocks, so
+-- a 5x5x5 cube centred on it. A chest against its side is in there, so is a
+-- vault three blocks across, and so is one sat on its roof. Anything
+-- further off is not the coordinator's store, and the point of the bound is
+-- that a turtle which cannot find one says so instead of walking away over
+-- the horizon looking.
+local SEARCH_RADIUS = 2
+
+-- Attempts between one walk of the cube and the next, once one has come
+-- back empty. The answer only changes when somebody puts a store there.
+local LOOK_AGAIN_EVERY = 20
+local searchedFor = 0
+
+local function nearCoordinator(x, y, z)
   if not coordPos then return false end
-  return math.abs(x - coordPos.x) + math.abs(y - coordPos.y)
-       + math.abs(z - coordPos.z) == 1
+  return math.abs(x - coordPos.x) <= SEARCH_RADIUS
+     and math.abs(y - coordPos.y) <= SEARCH_RADIUS
+     and math.abs(z - coordPos.z) <= SEARCH_RADIUS
 end
 
 local DROP = { forward = turtle.drop, down = turtle.dropDown, up = turtle.dropUp }
 local SUCK = { forward = turtle.suck, down = turtle.suckDown, up = turtle.suckUp }
 local LOOK = { forward = turtle.inspect, down = turtle.inspectDown, up = turtle.inspectUp }
 
--- Settle on top of a column and see what is underneath. This is the way
--- that copes with a store several blocks across and several tall - a Create
--- item vault, say - where standing beside it and looking sideways means
--- guessing which of its blocks is the one exposed, and where the spot two
--- out from the coordinator is quite likely to be more of the store itself.
--- Any block of a multiblock will take the items, so landing on the roof of
--- it is enough.
--- Comes down until there is something underfoot. The floor is worked out
--- from where the coordinator is standing rather than being a fixed number
--- of blocks: the drop from the top of the marked area down to a store at
--- ground level is as deep as the area is tall, and a store one block below
--- where the descent gives up is a store that is never found.
-local function dockOnTopOf(x, z, ceiling, floor)
-  if not goTo(x, ceiling, z, ceiling) then return nil, "could not get above it" end
-
-  while pos.y > floor do
-    if turtle.detectDown() then break end
-    if not moveDown() then break end
-  end
-
-  local present, info = turtle.inspectDown()
-  if present and common.looksLikeDepot(info.name, depotTypes) then
-    return {
-      store = { x = pos.x, y = pos.y - 1, z = pos.z },
-      dock  = { x = pos.x, y = pos.y, z = pos.z },
-      dir   = "down",
-    }
-  end
-  return nil, ("%s at y=%d"):format(present and info.name or "nothing", pos.y - 1)
-end
-
--- Stand on a given square, look one particular way, and say whether what is
--- there is the store. Everything about finding it comes down to this.
-local function dockFrom(standX, standZ, y, look, storeX, storeZ, travelY)
-  if not goTo(standX, y, standZ, travelY) then return nil end
-  turnTo(look)
-  local present, info = turtle.inspect()
-  if not present or not common.looksLikeDepot(info.name, depotTypes) then
-    return nil
-  end
-  if not touchesCoordinator(storeX, y, storeZ) then return nil end
-  return {
-    store  = { x = storeX, y = y, z = storeZ },
-    dock   = { x = standX, y = y, z = standZ },
-    dir    = "forward",
-    facing = look,
-  }
-end
-
--- Walk the ring of squares round the coordinator, looking inward. Every one
--- of its four sides can be seen from ground level: straight on from two
--- squares out, or across from either corner beside it - standing on a
--- corner puts a turtle next to two of the four at once.
---
--- This is the cheap way and it is tried first. Flying over the top is for
--- stores too wide to stand beside, and it means climbing to the roof of the
--- whole job and back for every side, which for a chest sat next to the
--- coordinator is a great deal of going nowhere.
-local function dockBesideOf(coord, dir, travelY)
-  local f = common.FACINGS[dir]
-  local storeX, storeZ = coord.x + f.dx, coord.z + f.dz
-  local inward = (dir + 2) % 4
-
-  -- Straight out from the store, looking back at it.
-  local found = dockFrom(coord.x + f.dx * 2, coord.z + f.dz * 2,
-    coord.y, inward, storeX, storeZ, travelY)
-  if found then return found end
-
-  -- The two corners flanking it, looking sideways at it.
-  for _, turn in ipairs({ 1, 3 }) do
-    local side = common.FACINGS[(dir + turn) % 4]
-    found = dockFrom(storeX + side.dx, storeZ + side.dz, coord.y,
-      (dir + turn + 2) % 4, storeX, storeZ, travelY)
-    if found then return found end
-  end
-  return nil
-end
-
--- Look round from where we are standing without moving an inch.
 local function depotAtHand()
   if not coordPos then return nil end
 
   local present, info = turtle.inspectDown()
   if present and common.looksLikeDepot(info.name, depotTypes)
-     and touchesCoordinator(pos.x, pos.y - 1, pos.z) then
+     and nearCoordinator(pos.x, pos.y - 1, pos.z) then
     return {
       store = { x = pos.x, y = pos.y - 1, z = pos.z },
       dock  = { x = pos.x, y = pos.y, z = pos.z },
@@ -595,7 +540,7 @@ local function depotAtHand()
   -- thing it is looking for.
   local above, what = turtle.inspectUp()
   if above and common.looksLikeDepot(what.name, depotTypes)
-     and touchesCoordinator(pos.x, pos.y + 1, pos.z) then
+     and nearCoordinator(pos.x, pos.y + 1, pos.z) then
     return {
       store = { x = pos.x, y = pos.y + 1, z = pos.z },
       dock  = { x = pos.x, y = pos.y, z = pos.z },
@@ -609,7 +554,7 @@ local function depotAtHand()
     local sx, sz = pos.x + f.dx, pos.z + f.dz
     local there, what = turtle.inspect()
     if there and common.looksLikeDepot(what.name, depotTypes)
-       and touchesCoordinator(sx, pos.y, sz) then
+       and nearCoordinator(sx, pos.y, sz) then
       return {
         store  = { x = sx, y = pos.y, z = sz },
         dock   = { x = pos.x, y = pos.y, z = pos.z },
@@ -621,45 +566,70 @@ local function depotAtHand()
   return nil
 end
 
--- A turtle put down beside the store - which is the sensible place to put
--- one - is already standing in the spot the long walk below exists to find.
--- It has usually taken a step by now, though: working out which way it
--- faces means moving, so the store it was next to is round a corner. So it
--- looks from here, then from each square it can reach in one step, before
--- anybody goes anywhere near the long way round.
-local function depotWithinReach()
-  -- Look all round from here, then from each square one step off, then do
-  -- the same a block higher, and again, up to five levels. That is generous
-  -- enough for a store put anywhere near a turtle however it was stood, and
-  -- it costs a few moves rather than a tour of the neighbourhood.
-  local LEVELS = 5
-  for level = 1, LEVELS do
-    local found = depotAtHand()
-    if found then return found end
-
-    for dir = 0, 3 do
-      turnTo(dir)
-      if not turtle.detect() and moveForward() then
-        found = depotAtHand()
-        if found then return found end
-        -- Back where we started, so the next try is from the same place.
-        -- Opposite the way we came, not opposite whichever way the looking
-        -- left us pointing.
-        turnTo((dir + 2) % 4)
-        -- Cannot get back to where we were looking from, so carry on from
-        -- wherever this leaves us rather than abandoning the whole search
-        -- over one square being in the way.
-        if not moveForward() then break end
+-- Every square within two of the coordinator, so a 5x5x5 cube centred on
+-- it, nearest first: the block on top of it, then the ones against its
+-- sides and underneath, then the shell beyond those. Sorted so that the
+-- cheapest place to stand is always tried before the dearest.
+local function cubeSquares()
+  local squares = {}
+  for dx = -SEARCH_RADIUS, SEARCH_RADIUS do
+    for dy = -SEARCH_RADIUS, SEARCH_RADIUS do
+      for dz = -SEARCH_RADIUS, SEARCH_RADIUS do
+        if not (dx == 0 and dy == 0 and dz == 0) then
+          squares[#squares + 1] = {
+            x = coordPos.x + dx, y = coordPos.y + dy, z = coordPos.z + dz,
+            far = math.abs(dx) + math.abs(dy) + math.abs(dz),
+            -- Straight up before round the sides, and round the sides
+            -- before underneath: a store gets put on top of a computer or
+            -- against it far more often than beneath it.
+            lie = (dy > 0 and 0) or (dy == 0 and 1) or 2,
+          }
+        end
       end
     end
+  end
+  table.sort(squares, function(a, b)
+    if a.far ~= b.far then return a.far < b.far end
+    if a.lie ~= b.lie then return a.lie < b.lie end
+    if a.y ~= b.y then return a.y > b.y end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.z < b.z
+  end)
+  return squares
+end
 
-    if level < LEVELS and not moveUp() then break end
+-- The coordinator knows a store is attached to it but not which side, so
+-- the first turtle that needs it goes and looks.
+--
+-- It looks inside a 5x5x5 cube round the coordinator and nowhere else. The
+-- first storage-shaped block it sees is the one it uses, so a chest against
+-- the coordinator costs a couple of moves; and when there is nothing there
+-- at all the walk ends, because the cube is finite. What it must never do
+-- is set off in some direction and keep going: a turtle that walks away
+-- looking for a store is a turtle nobody finds again.
+-- A turtle put down beside the store - which is the sensible place to put
+-- one - is already standing where the walk below would have taken it. It
+-- has usually taken a step by then, though: working out which way it faces
+-- means moving, so the store it was stood next to is round a corner. Look
+-- from here, then from each square one step off, before going anywhere.
+local function depotWithinReach()
+  local found = depotAtHand()
+  if found then return found end
+
+  for dir = 0, 3 do
+    turnTo(dir)
+    if not turtle.detect() and moveForward() then
+      found = depotAtHand()
+      if found then return found end
+      -- Back where we started, opposite the way we came rather than
+      -- opposite whichever way the looking left us pointing.
+      turnTo((dir + 2) % 4)
+      if not moveForward() then break end
+    end
   end
   return nil
 end
 
--- The coordinator knows a store is attached to it but not which side, so
--- the first turtle that needs it goes and looks at each neighbour in turn.
 local function probeDepot()
   if not coordPos then return nil end
 
@@ -668,28 +638,44 @@ local function probeDepot()
     print("the store is right here")
     return athand
   end
-  print("nothing storage-shaped within reach - going to look round the")
-  print("coordinator. put turtles beside the store to save them the walk.")
 
+  print("looking for the resupply store within " .. SEARCH_RADIUS
+    .. " blocks of the coordinator...")
+
+  -- Get above the coordinator first, over whatever is between here and it:
+  -- there may be a wall in the way, and since nothing outside the area may
+  -- be broken the only way past is over the top. That climb is worth making
+  -- once.
   local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
-  local ceiling = math.max(travelY, coordPos.y + 8)
-  -- Far enough down to stand on a store sunk a block into the ground.
-  local floor = coordPos.y - 1
+  goTo(coordPos.x, math.max(travelY, coordPos.y + 1), coordPos.z, travelY)
 
-  print("looking for the resupply store next to the coordinator...")
+  -- From here on it is a walk round the coordinator, so it is kept to one:
+  -- a ceiling just above the cube stops a square that cannot be reached -
+  -- the inside of a wall, a block of the store itself - from being answered
+  -- with a thirty-block detour over the top of it. There are a hundred and
+  -- twenty-four of them and most will be solid.
+  local roof = coordPos.y + SEARCH_RADIUS + 1
+  local looked = 0
 
-  for dir = 0, 3 do
-    local f = common.FACINGS[dir]
-    local found, saw = dockOnTopOf(coordPos.x + f.dx, coordPos.z + f.dz, ceiling, floor)
-    if found then return found end
+  for _, square in ipairs(cubeSquares()) do
+    -- The walk is only ever finished in full when there is nothing to find,
+    -- and a turtle with nothing to find has nowhere to refuel either. Stop
+    -- while there is still enough in the tank to get back to work, so that
+    -- putting a chest down actually fixes it.
+    if fuel() < FUEL_MARGIN then
+      print("running low on fuel - stopping the search short")
+      break
+    end
 
-    -- Say what was actually there. Guessing at why a probe came back
-    -- empty-handed is the slowest way to work out what is in the world.
-    print(("  %s of it: %s"):format(common.FACINGS[dir].name, tostring(saw)))
-
-    found = dockBesideOf(coordPos, dir, travelY)
-    if found then return found end
+    if goTo(square.x, square.y, square.z, math.max(square.y, math.min(pos.y, roof)), roof) then
+      looked = looked + 1
+      local found = depotAtHand()
+      if found then return found end
+    end
   end
+
+  print(("no storage found in the %d blocks round the coordinator (looked at %d)")
+    :format((SEARCH_RADIUS * 2 + 1) ^ 3 - 1, looked))
   return nil
 end
 
@@ -950,8 +936,17 @@ local function depotRun()
   local ok, why
   if not depot then
     state = "finding depot"
-    depot = probeDepot()
+    -- Walking the cube found nothing last time, and nothing has moved
+    -- since. Look again now and then, in case somebody has come and put a
+    -- chest there, but not on every single attempt: without this the turtle
+    -- walks the whole cube every time it wants fuel, which is a great deal
+    -- of walking to reach the same answer.
+    searchedFor = searchedFor + 1
+    if searchedFor == 1 or searchedFor % LOOK_AGAIN_EVERY == 0 then
+      depot = probeDepot()
+    end
     if depot then
+      searchedFor = 0
       print("resupply store found at " .. common.formatPos(depot.store))
       tell({ type = common.DEPOT_FOUND, depot = depot })
       saveLocal()
@@ -1036,14 +1031,53 @@ local function standDownSpot()
   return { x = alongX, y = y, z = box.maxZ + 3 }
 end
 
+-- Standing outside the area is not the same as being out of the way. The
+-- one square every turtle in the fleet has to reach is the docking square,
+-- and that is always outside the area - so a turtle that has just left the
+-- store and been told to stand clear is standing on the worst block on the
+-- job. The whole column above the dock counts, since that is how everybody
+-- comes down onto it.
+local function blocksTheStore()
+  local dock = depot and depot.dock
+  if not dock then return false end
+  return math.abs(pos.x - dock.x) <= 1 and math.abs(pos.z - dock.z) <= 1
+end
+
+-- A turtle already outside the area that is only in the store's way needs
+-- to step aside, not walk the length of the job to the far side of it -
+-- which in fill mode means crossing ground it has just made solid. Further
+-- out than the dock, so it is behind the queue rather than in it, and
+-- spread out by id so a whole shift does not stack up on one square.
+local function asideFromStore()
+  local dock = depot and depot.dock
+  if not dock or not box then return nil end
+  local awayX = (dock.x > box.maxX and 1) or (dock.x < box.minX and -1) or 0
+  local awayZ = (dock.z > box.maxZ and 1) or (dock.z < box.minZ and -1) or 0
+  if awayX == 0 and awayZ == 0 then return nil end
+  local out = 2 + (os.getComputerID() % 3)
+  return { x = dock.x + awayX * out, y = dock.y, z = dock.z + awayZ * out }
+end
+
 local function standDown()
-  local spot = standDownSpot()
-  if not spot then return end
-  -- Already clear of the area, so there is nothing to do but wait.
-  if pos.x < box.minX or pos.x > box.maxX
-     or pos.z < box.minZ or pos.z > box.maxZ then
+  if not box then return end
+
+  if blocksTheStore() then
+    local aside = asideFromStore()
+    -- Keep the height it already has: it has just left the store, and
+    -- coming down to get out of the way puts it back behind the store.
+    if aside and goTo(aside.x, aside.y, aside.z, math.max(aside.y, pos.y)) then
+      return
+    end
+    -- Could not step aside, so fall through and go properly clear.
+  elseif pos.x < box.minX or pos.x > box.maxX
+         or pos.z < box.minZ or pos.z > box.maxZ then
+    -- Already clear of the area and not in the store's way, so there is
+    -- nothing to do but wait.
     return
   end
+
+  local spot = standDownSpot()
+  if not spot then return end
   -- Out at the height the job is worked at, which is a road that exists
   -- whether or not there is sky over the area.
   goTo(spot.x, spot.y, spot.z, box.maxY)

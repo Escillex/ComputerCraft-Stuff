@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22ze (turtle 7)
+flatten 2026-08-22zf (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -273,31 +273,41 @@ rather than on arrival - so only the one with its turn is ever walking
 there or standing at it. The rest wait where they are, shown as `queuing
 for the depot`. Mined blocks go in it; fuel comes out of it.
 
-Put your turtles down **beside the store** when you start them. The first
-thing the fleet does is find it, and a turtle standing near it looks all
-round itself, then from each square a step away, then a block higher, up to
-five levels - so a store beside it, under it, above it or one step off is
-found on the spot. That is about a tenth of the walking of one that has to
-go and search round the coordinator, and it says so when it has to:
+Put your turtles down **beside the store** when you start them. A turtle
+that is already next to it looks round itself, and from each square a step
+away, and uses it from where it stands without walking anywhere.
+
+Otherwise it goes and looks - **inside a 5x5x5 cube round the coordinator
+and nowhere else**. It starts with the block on top of the coordinator,
+then the ones against its sides and underneath, then the shell beyond
+those, and the first storage-shaped block it finds is the one it uses. A
+chest against the coordinator costs a couple of moves.
+
+If there is nothing in that cube, it says so and stops:
 
 ```
-nothing storage-shaped within reach - going to look round the
-coordinator. put turtles beside the store to save them the walk.
+looking for the resupply store within 2 blocks of the coordinator...
+no storage found in the 124 blocks round the coordinator (looked at 123)
 ```
 
-Turtles find the container by walking round the coordinator and looking at
-what is next to it. They know what to look for because the coordinator
-tells them the block id of whatever is actually attached, so modded storage
-works without this having heard of it - and never gets broken, wherever it
-is standing.
+That bound is the point. A turtle that keeps walking until it finds a store
+is a turtle you never see again, so it looks in a box you can point at, and
+then complains. Put the store within two blocks of the coordinator - which
+it has to be anyway, since the coordinator finds it by having it attached.
+It looks again every so often in case you have gone and put one there, but
+it will not walk off looking, and it stops the search early rather than
+burning the fuel it needs to get back to work.
 
-They settle on **top** of the container and drop items down into it, which
-is what makes a multiblock store work: a Create item vault is three blocks
-tall and three across, so two blocks out from the coordinator is still
-inside the structure and there is nowhere to stand beside it. Any block of
-it takes the items, so the roof will do. **Leave the sky above your store
-clear** - that is the way in. A single chest under a low roof is still
-approached from the side instead.
+They know what to look for because the coordinator tells them the block id
+of whatever is actually attached, so modded storage works without this
+having heard of it - and never gets broken, wherever it is standing.
+
+They dock wherever they first reach the store from - on its roof, against
+its side, or underneath it, whichever the walk finds first. The roof is
+preferred where it is clear, which is what makes a multiblock store work: a
+Create item vault is three blocks tall and three across, and any block of
+it takes the items, so the roof will do. A chest with something built on
+top of it is docked with from the side instead.
 
 Every block of such a store is protected, not just the one touching the
 computer: breaking any one of them takes the whole structure apart. If a

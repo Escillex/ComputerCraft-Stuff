@@ -1786,6 +1786,87 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== filling, with the store under something ===")
+--------------------------------------------------------------------------
+do
+  -- A store with a block sat on top of it cannot be docked with from above,
+  -- so the fleet stands beside it instead. That is an ordinary chest under
+  -- an ordinary floor, and it must work as well as an open-topped one.
+  --
+  -- It is also the case that catches a turtle standing down on the docking
+  -- square: filling lets only one turtle on the road, so the others stand
+  -- clear - and a turtle that has just left the store is already outside
+  -- the area, which used to count as being out of the way.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 107, minY = 60, maxY = 64, minZ = 200, maxZ = 207 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- The floor the store is set into.
+  sim.setBlock(coordPos.x + 1, coordPos.y + 1, coordPos.z, "minecraft:stone")
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 30 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+  for _ = 1, 8 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Four of them for a job that only ever lets one on the road, so most are
+  -- surplus and get told to stand clear. A turtle told that while it is
+  -- standing on the docking square has to move off it: the dock is outside
+  -- the area, and "outside the area" used to count as being out of the way.
+  local crew = {}
+  for i = 1, 4 do
+    local w = sim.addMachine({ id = 400 + i, name = "u" .. (400 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(60000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+
+  for _, w in ipairs(crew) do
+    check(not w.crash, w.name .. " did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+  end
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("they filled every block (%d empty)"):format(air))
+  check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
+  check(#sim.violations() == 0, "nothing protected was dug")
+
+  -- The specific failure: a turtle standing down where everybody docks.
+  local onDock = {}
+  for _, w in ipairs(crew) do
+    if w.present and w.pos.x > box.maxX and w.pos.z >= box.minZ - 1
+       and w.pos.z <= box.maxZ + 1 and w.pos.x <= coordPos.x + 2 then
+      onDock[#onDock + 1] = ("%s at %d,%d,%d"):format(w.name, w.pos.x, w.pos.y, w.pos.z)
+    end
+  end
+  check(#onDock == 0,
+    "nobody stood down on the way to the store" ..
+    (#onDock > 0 and (" (" .. table.concat(onDock, ", ") .. ")") or ""))
+end
+
+--------------------------------------------------------------------------
 print("\n=== a fleet far too big for the job ===")
 --------------------------------------------------------------------------
 do
@@ -2323,45 +2404,66 @@ do
 end
 
 --------------------------------------------------------------------------
-print("\n=== finding a store stacked above the coordinator ===")
+print("\n=== the search stops at the edge of the cube ===")
 --------------------------------------------------------------------------
 do
-  -- The look round goes up as well as about, so a store standing taller
-  -- than the turtle - or a turtle put down in a dip beside one - is still
-  -- found without anybody touring the neighbourhood.
-  local sim = freshSim()
-  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
-  local coordPos, chest = buildWorld(sim, box)
+  -- The store is looked for in a 5x5x5 cube round the coordinator and
+  -- nowhere else. A chest inside it is found; one outside it is not, and
+  -- the turtle says there is no store rather than setting off to look for
+  -- it - because a turtle that keeps walking until it finds one is a turtle
+  -- that walks off and is never seen again.
+  local function chestAway(dx)
+    local sim = freshSim()
+    local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+    local coordPos, chest = buildWorld(sim, box)
 
-  -- Move the store four blocks up the coordinator's side, out of reach of
-  -- a turtle standing level with it.
-  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
-  local up = coordPos.y + 4
-  sim.setBlock(coordPos.x, up, coordPos.z, "computercraft:computer_normal")
-  sim.setBlock(coordPos.x + 1, up, coordPos.z, "minecraft:chest")
-  sim.linkChest(coordPos.x + 1, up, coordPos.z, chest)
+    -- Nothing against the coordinator at all: the only chest in the world
+    -- is dx blocks off it, out in the open.
+    sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+    sim.setBlock(coordPos.x + dx, coordPos.y, coordPos.z, "minecraft:chest")
+    sim.linkChest(coordPos.x + dx, coordPos.y, coordPos.z, chest)
 
-  local coord = sim.addMachine({ id = 1, name = "coord", pos = { x = coordPos.x,
-    y = up, z = coordPos.z }, console = {},
-    adjacentChest = { list = function() return {} end } })
-  sim.boot(coord, "coordinator", {})
-  sim.run(5)
-  markCorners(sim, box)
+    local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+      adjacentChest = { list = function() return {} end } })
+    sim.boot(coord, "coordinator", {})
+    sim.run(5)
+    markCorners(sim, box)
 
-  -- Standing at the foot of it, four below the store.
-  local w = sim.addMachine({ id = 460, name = "below", isTurtle = true,
-    pos = { x = coordPos.x + 2, y = coordPos.y, z = coordPos.z }, facing = 3,
-    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
-  sim.boot(w, "flatten", {})
-  table.insert(coord.console, "start")
-  sim.run(20000, function()
-    return table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil
-  end)
+    local w = sim.addMachine({ id = 460, name = "seeker" .. dx, isTurtle = true,
+      pos = { x = box.minX, y = box.maxY + 1, z = box.minZ }, facing = 1,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    sim.boot(w, "flatten", {})
+    table.insert(coord.console, "start")
+    sim.run(4000, function()
+      return table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil
+    end)
+    return w, coord
+  end
 
-  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
-    ("it found a store %d blocks above where it stood"):format(up - coordPos.y))
-  check(table.concat(w.log, "\n"):find("the store is right here", 1, true) ~= nil,
-    "by looking up rather than walking round")
+  -- Two blocks off the coordinator is the far face of the cube.
+  local _, coordNear = chestAway(2)
+  check(table.concat(coordNear.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    "a chest two blocks off the coordinator is inside the cube and is found")
+
+  -- Four is outside it, however obviously it is a chest.
+  local far, coordFar = chestAway(4)
+  check(table.concat(coordFar.log, "\n"):find("resupply store found at", 1, true) == nil,
+    "one four blocks off is outside the cube and is not")
+  check(table.concat(far.log, "\n"):find("no storage found in the", 1, true) ~= nil,
+    "and it says so rather than going to look for it")
+
+  -- Saying "no store" after looking at three squares is not an answer. A
+  -- square it cannot enter usually leaves it part way there, and carrying
+  -- on from wherever that is turns one unreachable square into every square
+  -- after it being unreachable too - so it goes back to the coordinator
+  -- between tries and actually covers the cube.
+  local looked = tonumber(table.concat(far.log, "\n"):match("looked at (%d+)") or "0")
+  check(looked >= 100,
+    ("having looked at most of the cube first (%d of 124)"):format(looked))
+
+  -- The whole point of the bound: the walk ends, near where it started.
+  local out = math.max(math.abs(far.pos.x - 102), math.abs(far.pos.z - 201))
+  check(out < 20, ("it stayed by the job rather than walking off (%d blocks out)"):format(out))
 end
 
 --------------------------------------------------------------------------

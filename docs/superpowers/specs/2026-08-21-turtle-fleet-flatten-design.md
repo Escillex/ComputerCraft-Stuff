@@ -111,11 +111,46 @@ the dock. A turtle that goes quiet loses the token immediately.
 
 **Finding the chest is lazy, and happens under the same token.** The
 coordinator knows where it is standing but not which side its chest is on,
-so a turtle looks: it stands two blocks out along each horizontal axis in
-turn and looks back at the coordinator. Doing this on first need rather
-than at startup is what stops a fleet booted together from all walking to
-the same block at once; the coordinator caches the answer and hands it to
-everyone else with their token.
+so a turtle looks. Doing this on first need rather than at startup is what
+stops a fleet booted together from all walking to the same block at once;
+the coordinator caches the answer and hands it to everyone else with their
+token.
+
+**The search is bounded to a 5x5x5 cube round the coordinator.** Squares
+are tried nearest first - the block on top of the coordinator, then the
+ones against its sides and underneath, then the shell beyond those - and
+the first storage-shaped block found is the one used. Outside that cube
+there is no searching at all: the turtle says there is no store and stops.
+
+The bound is the requirement, not an optimisation. An unbounded search is
+how a turtle walks over the horizon and is never found again, and it is
+what the earlier version did. The cube is also the right shape for the
+question, because the coordinator only knows a store is there by having one
+attached to it - so the store is a neighbour by definition, and the cube is
+generosity for multiblocks rather than a place a store might really be.
+
+Measured, on the same job:
+
+| store | old ring walk | 5x5x5 cube |
+|---|---|---|
+| chest against the coordinator | 179 moves | 133 |
+| Create item vault, 3x3x3 | 179 moves | 101 |
+| nothing there at all | never stopped | 123 of 124 squares, then stops |
+
+Two things this needs that were not obvious:
+
+- **Get to the coordinator first, then walk the cube.** There may be a wall
+  between the turtle and the coordinator, and nothing outside the area may
+  be broken, so the only way past is over the top - a climb worth making
+  once. Walking the cube afterwards is local, and capped just above the cube
+  so that a square which cannot be entered (the inside of a wall, a block of
+  the store itself) is answered by giving up on it rather than by a
+  thirty-block detour over the top. Most of the hundred and twenty-four are
+  solid.
+- **Stop while there is still fuel to get back.** The walk only ever runs to
+  the end when there is nothing to find, and a turtle with nothing to find
+  has nowhere to refuel either. Spending the tank proving it means that
+  putting a chest down no longer fixes it.
 
 ## reset.lua
 
@@ -182,6 +217,42 @@ how many turtles are worth running.
 
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
+
+## Why filling depended on docking on the store's roof
+
+Recorded earlier as "works from the roof, leaves 68 blocks unfilled from
+beside it - not understood". It is understood now, and it was two things,
+neither of which had anything to do with the roof.
+
+**A turtle told to stand clear parked on the docking square.** `standDown`
+took "outside the area" to mean "out of the way" and left the turtle where
+it stood. The docking square is always outside the area, so a turtle that
+had just left the store and was told to stand clear - which filling does
+constantly, since only one turtle may be on the road - sat on the one
+square the whole fleet needs. In a three-turtle job that was 110 failed
+approaches and no resupply for anybody after the first trip.
+
+**The road was joined by coming down before setting off.** `goToViaSpine`
+dropped to road height as its first act. From a dock at ground level the
+store and the coordinator stand between that square and the area, and
+neither may be dug, so the turtle was walled in with its back to the store
+and every column it was handed came back "blocked by minecraft:chest". A
+single turtle with no traffic at all wrote off the entire area that way.
+
+The roof dock hid both because `goTo` climbs to travel height and never
+drops to it. A turtle leaving a roof dock is already above everything and
+flies over the store rather than walking into it. Nothing about filling
+wanted the roof; it wanted the altitude.
+
+The first was fixed. The second was not: four attempts each traded the
+roofed-fill case against the open-sky one, because the descent in the spine
+route is doing two jobs at once - getting under a ceiling, and getting past
+the store - and they want to happen at different points on the journey.
+What made it moot was bounding the store search: the cube walk picks its
+dock differently, and the layout that provoked it no longer arises in
+anything that can be built. It is still there in the route, and it will
+come back if a docking spot at road height with the store between it and
+the area is ever chosen again.
 
 ## Filling under a ceiling: the spine
 
