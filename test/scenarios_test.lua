@@ -2123,6 +2123,80 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== draining with nothing to plug the lava with ===")
+--------------------------------------------------------------------------
+do
+  -- Draining works by laying a block into a source and taking it straight
+  -- back out, so it needs a block to spend. A turtle that starts with an
+  -- empty inventory has none - and it used to skip every source in
+  -- silence, walk the whole area, and report it drained while the lava sat
+  -- there.
+  local function drainWith(stock)
+    local sim = freshSim()
+    local box = { minX = 100, maxX = 103, minY = 61, maxY = 63, minZ = 200, maxZ = 203 }
+    local coordPos, chest = buildWorld(sim, box)
+
+    local pool = {}
+    for x = box.minX, box.maxX do
+      for z = box.minZ, box.maxZ do
+        for y = box.minY, box.maxY do sim.setBlock(x, y, z, nil) end
+        if x == box.minX or x == box.maxX or z == box.minZ or z == box.maxZ then
+          for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+        else
+          sim.setFluid(x, box.minY, z, "minecraft:lava", 0)
+          pool[#pool + 1] = { x = x, y = box.minY, z = z }
+        end
+      end
+    end
+
+    if stock then
+      for _ = 1, 2 do
+        chest.slots[#chest.slots + 1] = { name = stock, count = 64 }
+      end
+    end
+
+    local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+      adjacentChest = { list = function() return {} end } })
+    sim.boot(coord, "coordinator", {})
+    sim.run(5)
+    markCorners(sim, box)
+
+    -- Coal to move with and nothing else. No dirt, no cobble, nothing to
+    -- plug a source with.
+    local w = sim.addMachine({ id = 99, name = "dry", isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    sim.boot(w, "flatten", {})
+    table.insert(coord.console, "mode drain")
+    table.insert(coord.console, "start")
+    sim.run(40000, function() return not w.alive end)
+
+    local left = 0
+    for _, f in ipairs(pool) do
+      if sim.getFluid(f.x, f.y, f.z) then left = left + 1 end
+    end
+    return left, #pool, w, coord
+  end
+
+  -- With dirt in the store it fetches some and gets on with it.
+  local left, total, w = drainWith("minecraft:dirt")
+  check(left == 0,
+    ("it fetched something to plug with and drained the pool (%d of %d left)")
+      :format(left, total))
+  check(not w.crash, "and did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  -- With nothing in the store it must say so. Reporting a pool drained
+  -- while it is still full is the worst of the options.
+  local left2, total2, w2, coord2 = drainWith(nil)
+  local said = table.concat(w2.log, "\n") .. "\n" .. table.concat(coord2.log, "\n")
+  check(said:find("nothing to plug it with", 1, true) ~= nil,
+    "with nothing to plug with it says so rather than going quiet")
+  check(left2 == total2,
+    ("and does not pretend the lava is gone (%d of %d still there)")
+      :format(left2, total2))
+end
+
+--------------------------------------------------------------------------
 print("\n=== draining a lava pool without digging the place up ===")
 --------------------------------------------------------------------------
 do

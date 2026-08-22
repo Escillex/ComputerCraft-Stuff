@@ -1280,7 +1280,16 @@ local function drainCell(cell)
       local present, info = turtle.inspectDown()
 
       if present and common.isFluid(info.name) then
-        if common.isFluidSource(info) and selectFill() then
+        if common.isFluidSource(info) then
+          -- Nothing to plug it with. Draining is done by laying a block
+          -- into the fluid and taking it straight back out, so with an
+          -- empty inventory there is nothing to do it with - and saying
+          -- nothing means the pool is reported drained when it is still
+          -- there.
+          if not selectFill() then
+            turtle.select(1)
+            return plugged, true
+          end
           if turtle.placeDown() then
             plugged = plugged + 1
             -- Take the plug straight back out: the point is to be rid of
@@ -1298,7 +1307,7 @@ local function drainCell(cell)
   end
 
   goToY(box.maxY)
-  return plugged
+  return plugged, false
 end
 
 --------------------------------------------------------------------------
@@ -1723,8 +1732,18 @@ local function workerLoop()
       if mode == "fill" then
         status, detail = fillCell(myCell)
       elseif mode == "drain" then
-        plugged = drainCell(myCell)
-        status = "done"
+        local ranOut
+        plugged, ranOut = drainCell(myCell)
+        if ranOut then
+          trouble("found a source and have nothing to plug it with - put"
+            .. " some dirt or cobble in the store")
+          if not depotRun() then sleep(5) end
+          -- Hand the column back rather than calling it drained: there is
+          -- still a source in it.
+          status, detail = "blocked", "nothing to plug with"
+        else
+          status = "done"
+        end
       else
         status, detail = digCell(myCell)
       end

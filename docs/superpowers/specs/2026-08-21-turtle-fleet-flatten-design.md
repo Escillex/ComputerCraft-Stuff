@@ -250,6 +250,19 @@ no longer describes anything, and reports every fault it finds with a count
 rather than fixing things silently - each of these stops the job, so each
 is worth saying out loud.
 
+## Draining needs a block to spend, and said nothing when it had none
+
+A source is plugged by laying a block into it and taking that same block
+straight back out, so one block does the whole job - but only if there is
+one. `drainCell` tested for a block and skipped the source when there was
+none, without a word: no message, no trip to the store. A turtle with an
+empty inventory would walk every column of the area, plug nothing, and
+report it drained while the lava sat there.
+
+It now hands the column back and goes to the store for something to plug
+with, and says so if the store has nothing either. Reporting a pool drained
+while it is still full is the worst of the available outcomes.
+
 ## A turtle has no silk touch
 
 The whole idea of naming a second block as "leave this one where it is"

@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zj (turtle 7)
+flatten 2026-08-23zk (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -115,7 +115,7 @@ is what the version line on startup is for. **The coordinator enforces it**
 - a turtle on a different version is refused work outright, and told so:
 
 ```
-turtle 5 is on 2026-08-22y, not 2026-08-22zj - refusing it work
+turtle 5 is on 2026-08-22y, not 2026-08-23zk - refusing it work
   run 'update all' on it and reboot it
 ```
 
@@ -281,6 +281,18 @@ its way to the store. So it can only get at fluid it can already swim to,
 which is the fluid worth reaching: a pool, a flooded cave, a lava lake. It
 goes down each column as far as open space allows, plugs any source it
 finds, takes the plug straight back out, and moves on.
+
+**Keep something dull in the store** - dirt, cobble, gravel. Plugging a
+source means laying a block into it and taking that same block straight
+back out, so a turtle needs one block to spend and it gets it back each
+time. It will fetch one from the store on its own; with nothing there to
+fetch it stops and says so rather than walking the area and reporting it
+drained:
+
+```
+!! found a source and have nothing to plug it with - put some dirt or
+   cobble in the store
+```
 
 It sweeps the area again and again until a whole sweep turns nothing up,
 since draining a source lets what it was feeding run away and that uncovers
