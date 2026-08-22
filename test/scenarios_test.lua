@@ -1337,6 +1337,73 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== filling with the store off a different side ===")
+--------------------------------------------------------------------------
+do
+  -- Same job, store to the south instead of the east, and a ceiling on the
+  -- area so the road is the only way across. The road should follow the
+  -- store: the row nearest it, not whichever edge happened to suit last
+  -- time. If it picks the wrong edge the turtles fill their way into
+  -- corners they cannot get out of.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")   -- ceiling
+    end
+  end
+
+  -- Coordinator and store south of the area, past maxZ.
+  local coordPos = { x = box.minX + 2, y = box.maxY, z = box.maxZ + 2 }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 4 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+  for _ = 1, 12 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  sim.setBlock(box.maxX, box.maxY, box.maxZ, nil)
+  local w = sim.addMachine({ id = 250, name = "southfill", isTurtle = true,
+    pos = { x = box.maxX, y = box.maxY, z = box.maxZ }, facing = 0,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  -- Asked once the store has been found, since the road is worked out from
+  -- where it is.
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  local road = table.concat(coord.log, "\n"):match("road: (%S+=%-?%d+)")
+  check(road == ("z=" .. box.maxZ),
+    ("the road follows the store to the south side (%s)"):format(tostring(road)))
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("it filled every block (%d empty)"):format(air))
+  check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
