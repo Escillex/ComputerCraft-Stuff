@@ -916,27 +916,35 @@ local function cmdStatus()
   end
 end
 
+-- A turtle that cannot start is a turtle nobody is looking at. Say why on
+-- the coordinator before giving up, so 'list' answers the question rather
+-- than a walk out to wherever it is standing.
+local function giveUp(message)
+  trouble(message)
+  error(message, 0)
+end
+
 local function cmdWork()
   connect()
 
   -- Fuel first: everything below needs to be able to move, and a turtle
   -- that cannot move cannot even work out which way it is facing.
   if not refuelFromInventory(FUEL_MARGIN) then
-    error("out of fuel - put coal in my inventory to get started", 0)
+    giveUp("out of fuel - put coal in my inventory to get started")
   end
 
   local ok, why = measureFacing()
-  if not ok then error(why, 0) end
+  if not ok then giveUp(why) end
 
   local saved = common.loadState(STATE_FILE)
   if saved and saved.depot then depot = normaliseDepot(saved.depot) end
 
   local welcome = ask({ type = common.HELLO, pos = pos, version = common.VERSION }, 10)
-  if not welcome then error("the coordinator did not answer my hello", 0) end
-  if welcome.type == common.NACK then error(tostring(welcome.message), 0) end
+  if not welcome then giveUp("the coordinator did not answer my hello") end
+  if welcome.type == common.NACK then giveUp(tostring(welcome.message)) end
   if welcome.version ~= common.VERSION then
-    error(("version mismatch: I am %s, the coordinator is %s - run 'update all' on both")
-      :format(tostring(common.VERSION), tostring(welcome.version)), 0)
+    giveUp(("version mismatch: I am %s, the coordinator is %s - run 'update all' on both")
+      :format(tostring(common.VERSION), tostring(welcome.version)))
   end
 
   box = welcome.box
@@ -944,7 +952,7 @@ local function cmdWork()
   coordPos = welcome.coordPos
   depotTypes = welcome.depotTypes or depotTypes
   if not box then
-    error("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle", 0)
+    giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end
 
   print(("joined as turtle %d, facing %s at %s")

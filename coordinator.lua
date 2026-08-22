@@ -32,6 +32,9 @@ local depot             -- chest/dock positions, once a turtle has found it
 local depotTypes = {}   -- block ids of whatever is attached, for turtles to look for
 local depotHolder       -- only one turtle uses the chest at a time
 local depotSince
+local depotSeeker       -- the one turtle sent to find the store
+local depotSeekerSince
+local SEEK_TIMEOUT = 90 -- before giving the errand to somebody else
 local running = false
 local myPos
 
@@ -305,9 +308,27 @@ local function handle(id, msg)
     -- Turtles need to know where they are heading before they start filling
     -- their inventories, and in fill mode the order columns are worked in
     -- is measured from the store, so there is no order at all without it.
+    --
+    -- One turtle goes, and only one. The rest wait where they are: a fleet
+    -- all setting off to look at the same block is what the queue for the
+    -- store exists to prevent, and there is nothing to be gained by three
+    -- turtles finding the same answer.
     if not depot then
-      entry.state = "finding store"
-      reply(id, { type = common.NO_CELL, findDepot = true }, msg.nonce)
+      local seeker = depotSeeker and turtles[depotSeeker]
+      local lapsed = not seeker
+        or seeker.state == "missing"
+        or os.clock() - (depotSeekerSince or 0) > SEEK_TIMEOUT
+
+      if depotSeeker == id or lapsed then
+        if depotSeeker ~= id then
+          print(("turtle %d is going to find the store"):format(id))
+        end
+        depotSeeker, depotSeekerSince = id, os.clock()
+        entry.state = "finding store"
+        reply(id, { type = common.NO_CELL, findDepot = true }, msg.nonce)
+      else
+        reply(id, { type = common.NO_CELL }, msg.nonce)
+      end
       return
     end
 
@@ -374,6 +395,7 @@ local function handle(id, msg)
         or depot.dock.y ~= msg.depot.dock.y
         or depot.dock.z ~= msg.depot.dock.z
       depot = msg.depot
+      depotSeeker, depotSeekerSince = nil, nil
       writeNow()
       if moved then
         print("resupply store found at " .. common.formatPos(depot.store))

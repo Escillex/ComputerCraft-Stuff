@@ -42,8 +42,9 @@ update all
 
 The first thing the fleet does is find the store. No column is handed out
 until somebody has been and found it, so turtles always know where they are
-heading before they start filling up. If the coordinator sits there saying
-it is still looking, the store is not somewhere a turtle can reach.
+heading before they start filling up. **One** turtle is sent to look and the
+coordinator names which; the rest wait. If it sits there still looking, the
+store is not somewhere a turtle can reach.
 
 ## What it will and will not break
 
@@ -67,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22l (turtle 7)
+flatten 2026-08-22m (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -169,10 +170,12 @@ one at its own height.
 
 ## When something goes wrong
 
-Anything a turtle needs you for - the chest is full, it has run out of
-coal, it cannot find a way to the chest - is printed **on the
-coordinator**, with the turtle's id and where it is standing. Nobody is
-watching the screen of a turtle at the bottom of a hole.
+Anything a turtle needs you for - the store is full, it has run out of
+coal, it cannot find a way to the store, it is walled in and cannot even
+work out which way it is facing - is printed **on the coordinator**, with
+the turtle's id and where it is standing. Nobody is watching the screen of
+a turtle at the bottom of a hole, and a turtle that cannot start is the one
+least likely to be looked at.
 
 The same note shows up against that turtle in `list`, and in full under
 `locate <id>`, until it gets back to work.

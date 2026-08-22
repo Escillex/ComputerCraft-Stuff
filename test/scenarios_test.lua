@@ -1000,6 +1000,100 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== only one turtle goes looking for the store ===")
+--------------------------------------------------------------------------
+do
+  -- Three turtles, no store to be found. Exactly one should be sent to look
+  -- for it; the other two wait rather than all trooping off to the same
+  -- block. The one that goes is named on the coordinator.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)   -- take the store away
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 3 do
+    local w = sim.addMachine({ id = 190 + i, name = "t" .. (190 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 60)
+
+  -- Only the one sent should have gone near the coordinator; the rest stay
+  -- parked over the area.
+  local searchers = 0
+  for _, w in ipairs(crew) do
+    for _, line in ipairs(w.log) do
+      if line:find("looking for the resupply store", 1, true) then
+        searchers = searchers + 1
+        break
+      end
+    end
+  end
+  check(searchers == 1,
+    ("exactly one turtle went looking (%d did)"):format(searchers))
+
+  local log = table.concat(coord.log, "\n")
+  check(log:match("turtle (%d+) is going to find the store") ~= nil,
+    "and the coordinator named which one")
+  for _, line in ipairs(coord.log) do
+    if line:find("going to find the store") then print("        " .. line) end
+  end
+end
+
+--------------------------------------------------------------------------
+print("\n=== a turtle that cannot start says so on the coordinator ===")
+--------------------------------------------------------------------------
+do
+  -- Walled in on all six sides. It cannot work out which way it is facing
+  -- without breaking something, and it will not do that - so it has to give
+  -- up. Nobody is watching its screen, so the reason has to reach the
+  -- coordinator.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local at = { x = box.maxX + 6, y = box.maxY, z = box.maxZ + 6 }
+  for _, d in ipairs({ { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 },
+                       { 0, 0, 1 }, { 0, 0, -1 } }) do
+    sim.setBlock(at.x + d[1], at.y + d[2], at.z + d[3], "minecraft:obsidian")
+  end
+
+  local w = sim.addMachine({ id = 200, name = "stuck2", isTurtle = true,
+    pos = at, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 8 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 120)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("turtle 200:", 1, true) ~= nil,
+    "the coordinator heard about it")
+  check(log:find("walled in", 1, true) ~= nil,
+    "and was told what was wrong")
+  check(sim.getBlock(at.x + 1, at.y, at.z) == "minecraft:obsidian",
+    "and it broke nothing getting its bearings")
+  for _, line in ipairs(coord.log) do
+    if line:find("turtle 200:") then print("        " .. line) end
+  end
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
