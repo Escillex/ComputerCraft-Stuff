@@ -1404,6 +1404,156 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== filling an area walled in on three sides ===")
+--------------------------------------------------------------------------
+do
+  -- Solid all the way round bar the side the store is on, and a ceiling on
+  -- top: the turtles can only get in and out past the store, which is also
+  -- the only ground they have to stand on to seal the road. None of the
+  -- wall may be broken.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")
+    end
+  end
+
+  -- Walls north, east and west, floor to well above. South is left open,
+  -- because that is where the store is.
+  local wall = {}
+  local function bricks(x, z)
+    for y = box.minY - 1, box.maxY + 2 do
+      sim.setBlock(x, y, z, "minecraft:obsidian")
+      wall[#wall + 1] = { x = x, y = y, z = z }
+    end
+  end
+  for x = box.minX - 1, box.maxX + 1 do bricks(x, box.minZ - 1) end
+  for z = box.minZ - 1, box.maxZ do
+    bricks(box.minX - 1, z)
+    bricks(box.maxX + 1, z)
+  end
+
+  local coordPos = { x = box.minX + 2, y = box.maxY, z = box.maxZ + 2 }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 4 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+  for _ = 1, 12 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  sim.setBlock(box.maxX, box.maxY, box.maxZ, nil)
+  local w = sim.addMachine({ id = 260, name = "walledfill", isTurtle = true,
+    pos = { x = box.maxX, y = box.maxY, z = box.maxZ }, facing = 0,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("it filled every block (%d empty)"):format(air))
+  check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
+
+  local broken = 0
+  for _, b in ipairs(wall) do
+    if sim.getBlock(b.x, b.y, b.z) ~= "minecraft:obsidian" then broken = broken + 1 end
+  end
+  check(broken == 0, ("and the wall is untouched (%d of %d)"):format(broken, #wall))
+end
+
+--------------------------------------------------------------------------
+print("\n=== an area sealed in on every side ===")
+--------------------------------------------------------------------------
+do
+  -- Bricked up all four sides and roofed. Turtles cannot get in without
+  -- breaking something that is not theirs to break, so they should not get
+  -- in - and must not quietly leave a half-filled area behind reporting
+  -- success. Either it is finished or the coordinator says what was beaten.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")
+    end
+  end
+  for x = box.minX - 1, box.maxX + 1 do
+    for z = box.minZ - 1, box.maxZ + 1 do
+      for y = box.minY - 1, box.maxY + 2 do
+        if x < box.minX or x > box.maxX or z < box.minZ or z > box.maxZ then
+          sim.setBlock(x, y, z, "minecraft:obsidian")
+        end
+      end
+    end
+  end
+
+  local coordPos = { x = box.maxX + 4, y = box.maxY, z = box.minZ + 1 }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 4 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+  for _ = 1, 8 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Left outside, where a turtle would actually be put.
+  local w = sim.addMachine({ id = 270, name = "sealed", isTurtle = true,
+    pos = { x = coordPos.x - 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+
+  local air = 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) == nil then air = air + 1 end
+      end
+    end
+  end
+
+  local log = table.concat(coord.log, "\n")
+  local writtenOff = tonumber(log:match("(%d+) written off")) or 0
+  check(air == 0 or writtenOff > 0,
+    ("it did not quietly leave holes (%d empty, %d written off)")
+      :format(air, writtenOff))
+  check(log:find("beaten us", 1, true) ~= nil or air == 0,
+    "and said so when it finished")
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
