@@ -607,6 +607,7 @@ local function probeDepot()
   local floor = coordPos.y - 1
 
   print("looking for the resupply store next to the coordinator...")
+
   for dir = 0, 3 do
     local f = common.FACINGS[dir]
     local found, saw = dockOnTopOf(coordPos.x + f.dx, coordPos.z + f.dz, ceiling, floor)
