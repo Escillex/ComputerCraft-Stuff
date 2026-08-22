@@ -1980,6 +1980,67 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== clearing an area with lava in it ===")
+--------------------------------------------------------------------------
+do
+  -- Lava is not something a turtle can dig, and it cannot even see it -
+  -- detect returns false, so it swims through and leaves the lot behind.
+  -- The sources have to be plugged with a block instead. Flows are left
+  -- alone deliberately: plug one and it refills from whatever is feeding
+  -- it, while pulling the sources drains them for nothing.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local sources, flows = {}, {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      if (x + z) % 3 == 0 then
+        -- A source part way down the column, with a flow above it.
+        sim.setBlock(x, box.minY + 1, z, nil)
+        sim.setFluid(x, box.minY + 1, z, "minecraft:lava", 0)
+        sources[#sources + 1] = { x = x, y = box.minY + 1, z = z }
+
+        sim.setBlock(x, box.minY + 2, z, nil)
+        sim.setFluid(x, box.minY + 2, z, "minecraft:lava", 2)
+        flows[#flows + 1] = { x = x, y = box.minY + 2, z = z }
+      end
+    end
+  end
+
+  -- Dirt in the store, since plugging costs a block per source.
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 410, name = "lava", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local sourcesLeft = 0
+  for _, f in ipairs(sources) do
+    if sim.getFluid(f.x, f.y, f.z) then sourcesLeft = sourcesLeft + 1 end
+  end
+  check(sourcesLeft == 0,
+    ("every lava source was plugged (%d of %d left)"):format(sourcesLeft, #sources))
+
+  check(cleared(sim, box) == 0,
+    ("and the area came out empty (%d blocks left)"):format(cleared(sim, box)))
+  print(("        %d sources, %d flows"):format(#sources, #flows))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

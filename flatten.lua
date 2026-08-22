@@ -884,6 +884,29 @@ local function standDown()
   goTo(spot.x, spot.y, spot.z, box.maxY)
 end
 
+-- Lava and water are not dug, they are displaced: lay a block into one and
+-- it is gone, then break that block and the space is properly empty. Doing
+-- it to a source is permanent. Doing it to a flow only buys a moment, since
+-- it refills from whatever source is feeding it - so only sources are worth
+-- the block, and once they are gone the flows drain on their own.
+--
+-- Without this a turtle swims through a column of lava without noticing,
+-- digs nothing, and leaves the finished area full of it.
+local function displaceFluidBelow()
+  local present, info = turtle.inspectDown()
+  if not present or not common.isFluid(info.name) then return true end
+  if not common.isFluidSource(info) then return true end
+
+  if not selectFill() then
+    trouble("found " .. info.name .. " and have nothing to plug it with")
+    return false
+  end
+  local plugged = turtle.placeDown()
+  turtle.select(1)
+  if not plugged then return false end
+  return true
+end
+
 -- Clear one column of the box from the top down, patch the floor beneath
 -- it, then climb back to the travel plane. Returns "done", "full" when the
 -- inventory needs emptying part-way, or "blocked" with a reason.
@@ -895,6 +918,9 @@ local function digCell(cell)
 
   while pos.y > box.minY do
     if inventoryFull() then return "full" end
+    -- Plug anything liquid before dropping into it, so it is dug out like
+    -- everything else rather than closing over the turtle's head.
+    displaceFluidBelow()
     local moved, reason = moveDown()
     if not moved then return "blocked", reason end
   end

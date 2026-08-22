@@ -46,6 +46,20 @@ end
 
 function sim.creatureAt(x, y, z) return creatures[key(x, y, z)] end
 
+-- Fluids: a turtle walks straight into them, detect does not see them, but
+-- inspect reports them with the level that says source from flow. Laying a
+-- block into one replaces it, which is the only way to be rid of it.
+local fluids = {}
+
+function sim.setFluid(x, y, z, name, level)
+  fluids[key(x, y, z)] = name and { name = name, level = level or 0 } or nil
+end
+
+function sim.getFluid(x, y, z)
+  local f = fluids[key(x, y, z)]
+  return f and f.name, f and f.level
+end
+
 function sim.violation(msg)
   violations[#violations + 1] = msg
 end
@@ -550,8 +564,12 @@ local function makeEnv(m)
 
     local function inspectAt(x, y, z)
       local name = occupant(x, y, z)
-      if not name then return false, "No block to inspect" end
-      return true, { name = name, state = {}, tags = {} }
+      if name then return true, { name = name, state = {}, tags = {} } end
+      local fluid = fluids[key(x, y, z)]
+      if fluid then
+        return true, { name = fluid.name, state = { level = fluid.level }, tags = {} }
+      end
+      return false, "No block to inspect"
     end
 
     local function chestAt(where)
@@ -652,6 +670,7 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = below()
         if occupant(x, y, z) then return false end
+        fluids[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
@@ -663,6 +682,7 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = ahead()
         if occupant(x, y, z) then return false end
+        fluids[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
@@ -674,6 +694,7 @@ local function makeEnv(m)
         if not s then return false end
         local x, y, z = above()
         if occupant(x, y, z) then return false end
+        fluids[key(x, y, z)] = nil
         blocks[key(x, y, z)] = s.name
         s.count = s.count - 1
         if s.count <= 0 then m.slots[m.selected] = nil end
@@ -763,6 +784,7 @@ end
 function sim.machines() return machines end
 function sim.reset()
   blocks, chests, machines, violations = {}, {}, {}, {}
+  fluids = {}
   hosts, timers = {}, {}
   now, nextId, nextTimerId = 0, 0, 0
 end

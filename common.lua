@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22w"
+common.VERSION = "2026-08-22x"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -132,6 +132,30 @@ end
 -- The note on disk is a convenience, not something worth dying over: a
 -- turtle that cannot write it should carry on mining. Anything that goes
 -- wrong here is reported rather than thrown.
+-- A turtle walks straight into lava and water without noticing: detect
+-- returns false for both, so nothing stops it and nothing gets dug. The
+-- only way to be rid of one is to lay a block into it, which works because
+-- fluids are replaceable.
+--
+-- Measured in game on 1.21: inspect gives minecraft:lava with state.level 0
+-- for a source and 2 for a flow a block away. Only the sources are worth
+-- plugging - pull those and the flows they fed drain themselves, while a
+-- flow plugged on its own just refills from a source nobody has touched.
+function common.isFluid(name)
+  if not name then return false end
+  name = name:lower()
+  return name:find("water", 1, true) ~= nil
+      or name:find("lava", 1, true) ~= nil
+end
+
+function common.isFluidSource(info)
+  if not info or not common.isFluid(info.name) then return false end
+  local level = info.state and info.state.level
+  -- No level at all: treat it as a source, since plugging it is the safe
+  -- way to be wrong.
+  return level == nil or level == 0
+end
+
 function common.saveState(path, tbl)
   local ok, text = pcall(textutils.serialize, tbl)
   if not ok then

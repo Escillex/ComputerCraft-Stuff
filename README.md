@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22w (turtle 7)
+flatten 2026-08-22x (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -167,6 +167,23 @@ counts them. The job still finishes; it just finishes with holes.
 Once whatever stopped them has gone, `retry` puts every written-off column
 back in the pool and `start` sends the fleet round again. Everything
 already dug stays dug.
+
+## Lava and water
+
+A turtle cannot see a fluid - `detect` returns false for lava and water -
+so without help it swims through a column of lava, digs nothing, and leaves
+the finished area full of it.
+
+They are not dug but displaced: a block laid into one replaces it, and
+breaking that block leaves the space properly empty. **Only sources get
+plugged.** Pull a source and the flows it fed drain themselves; plug a flow
+on its own and it refills from a source nobody has touched. A turtle tells
+a source from a flow by looking at it.
+
+Plugging costs a block per source, taken from the same stack of dirt used
+to cap holes in the floor - so keep some in the store if the area is wet.
+Lava that flows in from **outside** the marked area cannot be helped: those
+sources are not part of the job, and nothing outside it gets touched.
 
 ## Losing a turtle
 
