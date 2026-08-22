@@ -57,12 +57,12 @@ A turtle that cannot reach somewhere without breaking something outside the
 area does not go. It reports the column as blocked and moves on, so leave
 your turtles and your store somewhere they can actually be reached from.
 
-There is exactly one exception, and only when **clearing**: a column that
-bottoms out over a cave gets capped, with a block laid one below the area
-so you are left with a floor rather than a hole. It only ever fills thin
-air and never replaces anything - that is what the stack of dirt turtles
-hold back is for. `floor off` on the coordinator turns it off, and then
-nothing whatsoever is laid or broken outside the marked area.
+Nothing is laid outside it either, unless you ask. `floor on` when
+**clearing** will cap a column that bottoms out over a cave, laying a block
+one below the area so you get a floor rather than a hole - it only ever
+fills thin air and never replaces anything, and it is what the stack of
+dirt turtles hold back is for. It is **off by default**, because that block
+goes outside what you marked.
 
 **Filling never does this**: it fills the area down to its own bottom and
 leaves whatever is underneath as it found it.
@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zb (turtle 7)
+flatten 2026-08-22zc (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -163,7 +163,7 @@ everything else. `start` refuses and says so.
 | `list` | every turtle: state, position, when it was last heard from |
 | `locate <id>` | where one turtle is (**even if it has gone quiet**) and the last problem it reported |
 | `status` | area, progress, and where the chest is |
-| `floor <on\|off>` | cap holes under a cleared area (on by default), or leave them |
+| `floor <on\|off>` | cap holes under a cleared area (off by default) |
 | `retry` | put written-off columns back in the pool and have another go |
 | `clear` | forget the area so you can mark a new one |
 | `exit` | quit |

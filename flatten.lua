@@ -36,7 +36,7 @@ local mode = "clear"    -- what the coordinator wants done with a column
 local material          -- the block id to fill with, when filling
 local spine             -- the row kept open as a road while filling
 local skyOverhead       -- whether there is room to travel above the area
-local floorPatch = true -- whether to cap a hole under a cleared column
+local floorPatch = false -- whether to cap a hole under a cleared column
 local myCell
 local state = "starting"
 
@@ -467,6 +467,15 @@ end
 -- Depot
 --------------------------------------------------------------------------
 
+-- Whether a block sits right against the coordinator. The store is the
+-- thing touching it, so anything further off is somebody else's chest and
+-- none of our business.
+local function touchesCoordinator(x, y, z)
+  if not coordPos then return false end
+  return math.abs(x - coordPos.x) + math.abs(y - coordPos.y)
+       + math.abs(z - coordPos.z) == 1
+end
+
 local DROP = { forward = turtle.drop, down = turtle.dropDown, up = turtle.dropUp }
 local SUCK = { forward = turtle.suck, down = turtle.suckDown, up = turtle.suckUp }
 local LOOK = { forward = turtle.inspect, down = turtle.inspectDown, up = turtle.inspectUp }
@@ -502,35 +511,51 @@ local function dockOnTopOf(x, z, ceiling, floor)
   return nil, ("%s at y=%d"):format(present and info.name or "nothing", pos.y - 1)
 end
 
--- The older way: stand two blocks out and look back at the coordinator.
--- Still worth trying for a single chest tucked under a roof, where there is
--- no way to come at it from above.
-local function dockBesideOf(coord, dir, travelY)
-  local f = common.FACINGS[dir]
-  local standX, standZ = coord.x + f.dx * 2, coord.z + f.dz * 2
-  if not goTo(standX, coord.y, standZ, travelY) then return nil end
-
-  local inward = (dir + 2) % 4
-  turnTo(inward)
+-- Stand on a given square, look one particular way, and say whether what is
+-- there is the store. Everything about finding it comes down to this.
+local function dockFrom(standX, standZ, y, look, storeX, storeZ, travelY)
+  if not goTo(standX, y, standZ, travelY) then return nil end
+  turnTo(look)
   local present, info = turtle.inspect()
-  if present and common.looksLikeDepot(info.name, depotTypes) then
-    return {
-      store  = { x = coord.x + f.dx, y = coord.y, z = coord.z + f.dz },
-      dock   = { x = standX, y = coord.y, z = standZ },
-      dir    = "forward",
-      facing = inward,
-    }
+  if not present or not common.looksLikeDepot(info.name, depotTypes) then
+    return nil
   end
-  return nil
+  if not touchesCoordinator(storeX, y, storeZ) then return nil end
+  return {
+    store  = { x = storeX, y = y, z = storeZ },
+    dock   = { x = standX, y = y, z = standZ },
+    dir    = "forward",
+    facing = look,
+  }
 end
 
--- Whether a block sits right against the coordinator. The store is the
--- thing touching it, so anything further off is somebody else's chest and
--- none of our business.
-local function touchesCoordinator(x, y, z)
-  if not coordPos then return false end
-  return math.abs(x - coordPos.x) + math.abs(y - coordPos.y)
-       + math.abs(z - coordPos.z) == 1
+-- Walk the ring of squares round the coordinator, looking inward. Every one
+-- of its four sides can be seen from ground level: straight on from two
+-- squares out, or across from either corner beside it - standing on a
+-- corner puts a turtle next to two of the four at once.
+--
+-- This is the cheap way and it is tried first. Flying over the top is for
+-- stores too wide to stand beside, and it means climbing to the roof of the
+-- whole job and back for every side, which for a chest sat next to the
+-- coordinator is a great deal of going nowhere.
+local function dockBesideOf(coord, dir, travelY)
+  local f = common.FACINGS[dir]
+  local storeX, storeZ = coord.x + f.dx, coord.z + f.dz
+  local inward = (dir + 2) % 4
+
+  -- Straight out from the store, looking back at it.
+  local found = dockFrom(coord.x + f.dx * 2, coord.z + f.dz * 2,
+    coord.y, inward, storeX, storeZ, travelY)
+  if found then return found end
+
+  -- The two corners flanking it, looking sideways at it.
+  for _, turn in ipairs({ 1, 3 }) do
+    local side = common.FACINGS[(dir + turn) % 4]
+    found = dockFrom(storeX + side.dx, storeZ + side.dz, coord.y,
+      (dir + turn + 2) % 4, storeX, storeZ, travelY)
+    if found then return found end
+  end
+  return nil
 end
 
 -- Look round from where we are standing without moving an inch.
@@ -952,14 +977,18 @@ local function standDownSpot()
   local alongZ = box.minZ + (id % (box.maxZ - box.minZ + 1))
   local alongX = box.minX + (id % (box.maxX - box.minX + 1))
 
+  -- The far side from the store, not the near one. Waiting on the store's
+  -- side means waiting on the one path everybody uses to reach it, and a
+  -- turtle standing on the docking square stops the whole fleet resupplying
+  -- - which is the opposite of getting out of the way.
   if target and target.x > box.maxX then
-    return { x = box.maxX + 3, y = y, z = alongZ }
-  elseif target and target.x < box.minX then
     return { x = box.minX - 3, y = y, z = alongZ }
+  elseif target and target.x < box.minX then
+    return { x = box.maxX + 3, y = y, z = alongZ }
   elseif target and target.z > box.maxZ then
-    return { x = alongX, y = y, z = box.maxZ + 3 }
+    return { x = alongX, y = y, z = box.minZ - 3 }
   end
-  return { x = alongX, y = y, z = box.minZ - 3 }
+  return { x = alongX, y = y, z = box.maxZ + 3 }
 end
 
 local function standDown()

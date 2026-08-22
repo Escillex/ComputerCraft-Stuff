@@ -149,8 +149,10 @@ end
 check(#leftover == 0, ("every block in the area is cleared (%d left)"):format(#leftover))
 for i = 1, math.min(#leftover, 10) do print("        " .. leftover[i]) end
 
-check(sim.getBlock(FLOOR_HOLE.x, FLOOR_HOLE.y, FLOOR_HOLE.z) ~= nil,
-  "the hole in the floor was patched")
+-- Capping holes under the area is off unless asked for, because the block
+-- goes outside what was marked.
+check(sim.getBlock(FLOOR_HOLE.x, FLOOR_HOLE.y, FLOOR_HOLE.z) == nil,
+  "the hole under the area was left alone")
 
 check(sim.getBlock(CHEST_POS.x, CHEST_POS.y, CHEST_POS.z) == "minecraft:chest",
   "the resupply chest is still standing")

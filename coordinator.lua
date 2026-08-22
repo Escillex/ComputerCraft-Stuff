@@ -37,7 +37,10 @@ local drained = 0       -- sources plugged during this pass
 local passes = 0        -- sweeps made so far
 local spine             -- the row kept open as a road while filling
 local material          -- the block id fill mode lays down
-local floorPatch = true -- cap a cleared column that bottoms out over a cave
+-- Off unless asked for. Capping a hole under a cleared column means laying
+-- a block outside the area that was marked, and the rule everywhere else is
+-- that nothing outside it is touched at all.
+local floorPatch = false
 local depotSeeker       -- the one turtle sent to find the store
 local depotSeekerSince
 local SEEK_TIMEOUT = 90 -- before giving the errand to somebody else
@@ -475,6 +478,9 @@ local function handle(id, msg)
       -- way there is more fleet here than there is room for, so this one is
       -- told to stand down and get out of the way rather than hover over
       -- the job waiting for a gap that is not coming.
+      if entry.state ~= "stood down" then
+        print(("turtle %d has nothing to do - standing it down"):format(id))
+      end
       entry.state = "stood down"
       reply(id, { type = common.NO_CELL, standDown = true }, msg.nonce)
     end
@@ -742,10 +748,10 @@ local function cmdFloor(rest)
   local want = (rest or ""):lower()
   if want ~= "on" and want ~= "off" then
     print("usage: floor <on|off>   (currently " .. (floorPatch and "on" or "off") .. ")")
+    print("  off  the default: nothing is broken or placed outside the")
+    print("       marked area at all, and holes in the ground stay open")
     print("  on   cap a cleared column that bottoms out over a cave, laying")
     print("       one block below the area so you get a floor not a hole")
-    print("  off  break nothing and place nothing outside the marked area,")
-    print("       and leave any holes in the ground open")
     return
   end
   floorPatch = (want == "on")
@@ -789,7 +795,7 @@ local function cmdHelp()
   print("status         area, progress and depot")
   print("mode <c|f|d>   clear the area out, fill it in, or drain it")
   print("material <id>  what to fill it with")
-  print("floor <on|off> cap holes under a cleared area, or leave them")
+  print("floor <on|off> cap holes under a cleared area (off by default)")
   print("retry          put the written-off columns back in the pool")
   print("clear          forget the area and start over")
   print("exit           quit the coordinator")
