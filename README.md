@@ -57,6 +57,13 @@ A turtle that cannot reach somewhere without breaking something outside the
 area does not go. It reports the column as blocked and moves on, so leave
 your turtles and your store somewhere they can actually be reached from.
 
+There is exactly one exception, and only when **clearing**: a column that
+bottoms out over a cave gets capped, with a block laid one below the area
+so you are left with a floor rather than a hole. It only ever fills thin
+air and never replaces anything - that is what the stack of dirt turtles
+hold back is for. **Filling never does this**: it fills the area down to
+its own bottom and leaves whatever is underneath alone.
+
 If a turtle cannot find a way round, it says so and carries on mining
 rather than tunnelling.
 

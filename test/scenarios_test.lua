@@ -1225,6 +1225,16 @@ do
     end
   end
 
+  -- Punch holes in the ground under the area. Clearing would cap these;
+  -- filling must leave them exactly as they are.
+  local floorWas = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      if (x + z) % 2 == 0 then sim.setBlock(x, box.minY - 1, z, nil) end
+      floorWas[x .. "," .. z] = sim.getBlock(x, box.minY - 1, z)
+    end
+  end
+
   local MATERIAL = "minecraft:cobblestone"
   for _ = 1, 12 do
     chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 }
@@ -1261,6 +1271,20 @@ do
   check(air == 0, ("no gaps left in the area (%d empty)"):format(air))
   check(wrong == 0, ("and all of it is the right block (%d wrong)"):format(wrong))
   check(#sim.violations() == 0, "nothing protected was dug")
+
+  -- Clearing caps a hole in the floor under the area; filling has no floor
+  -- to lay, because it fills the area itself right down to its own bottom.
+  -- Anything below is not part of the job and must be left as it was.
+  local under = 0
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      if sim.getBlock(x, box.minY - 1, z) ~= floorWas[x .. "," .. z] then
+        under = under + 1
+      end
+    end
+  end
+  check(under == 0,
+    ("and it laid nothing below the area (%d blocks changed)"):format(under))
   print(("        %d blocks placed, %d moves"):format(
     (box.maxX - box.minX + 1) * (box.maxY - box.minY + 1) * (box.maxZ - box.minZ + 1),
     w.moves))
