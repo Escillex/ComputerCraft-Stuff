@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22zc (turtle 7)
+flatten 2026-08-22zd (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -253,9 +253,16 @@ there or standing at it. The rest wait where they are, shown as `queuing
 for the depot`. Mined blocks go in it; fuel comes out of it.
 
 Put your turtles down **beside the store** when you start them. The first
-thing the fleet does is find it, and a turtle standing next to it looks
-about, sees it, and uses it from where it is - about a sixth of the walking
-of one that has to go and hunt for it.
+thing the fleet does is find it, and a turtle standing near it looks all
+round itself, then from each square a step away, then a block higher, up to
+five levels - so a store beside it, under it, above it or one step off is
+found on the spot. That is about a tenth of the walking of one that has to
+go and search round the coordinator, and it says so when it has to:
+
+```
+nothing storage-shaped within reach - going to look round the
+coordinator. put turtles beside the store to save them the walk.
+```
 
 Turtles find the container by walking round the coordinator and looking at
 what is next to it. They know what to look for because the coordinator

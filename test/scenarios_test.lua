@@ -2323,6 +2323,78 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== finding a store stacked above the coordinator ===")
+--------------------------------------------------------------------------
+do
+  -- The look round goes up as well as about, so a store standing taller
+  -- than the turtle - or a turtle put down in a dip beside one - is still
+  -- found without anybody touring the neighbourhood.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Move the store four blocks up the coordinator's side, out of reach of
+  -- a turtle standing level with it.
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+  local up = coordPos.y + 4
+  sim.setBlock(coordPos.x, up, coordPos.z, "computercraft:computer_normal")
+  sim.setBlock(coordPos.x + 1, up, coordPos.z, "minecraft:chest")
+  sim.linkChest(coordPos.x + 1, up, coordPos.z, chest)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = { x = coordPos.x,
+    y = up, z = coordPos.z }, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Standing at the foot of it, four below the store.
+  local w = sim.addMachine({ id = 460, name = "below", isTurtle = true,
+    pos = { x = coordPos.x + 2, y = coordPos.y, z = coordPos.z }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function()
+    return table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil
+  end)
+
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    ("it found a store %d blocks above where it stood"):format(up - coordPos.y))
+  check(table.concat(w.log, "\n"):find("the store is right here", 1, true) ~= nil,
+    "by looking up rather than walking round")
+end
+
+--------------------------------------------------------------------------
+print("\n=== nothing to resupply from at all ===")
+--------------------------------------------------------------------------
+do
+  -- No container anywhere near the coordinator. It should say so plainly
+  -- rather than wandering off looking for one.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 62, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos = buildWorld(sim, box)
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {} })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 470, name = "nostore", isTurtle = true,
+    pos = { x = coordPos.x + 2, y = coordPos.y, z = coordPos.z }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 300)
+
+  local log = table.concat(coord.log, "\n")
+  check(log:find("no container next to the coordinator", 1, true) ~= nil,
+    "it reported that there is no store to be found")
+  check(log:find("nothing next to me accepts items", 1, true) ~= nil,
+    "and the coordinator said so on startup too")
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

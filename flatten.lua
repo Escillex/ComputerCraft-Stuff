@@ -572,6 +572,19 @@ local function depotAtHand()
     }
   end
 
+  -- Overhead as well. Climbing towards a store stops the moment the store
+  -- itself is in the way, which leaves a turtle standing directly under the
+  -- thing it is looking for.
+  local above, what = turtle.inspectUp()
+  if above and common.looksLikeDepot(what.name, depotTypes)
+     and touchesCoordinator(pos.x, pos.y + 1, pos.z) then
+    return {
+      store = { x = pos.x, y = pos.y + 1, z = pos.z },
+      dock  = { x = pos.x, y = pos.y, z = pos.z },
+      dir   = "up",
+    }
+  end
+
   for dir = 0, 3 do
     turnTo(dir)
     local f = common.FACINGS[dir]
@@ -597,20 +610,32 @@ end
 -- looks from here, then from each square it can reach in one step, before
 -- anybody goes anywhere near the long way round.
 local function depotWithinReach()
-  local found = depotAtHand()
-  if found then return found end
+  -- Look all round from here, then from each square one step off, then do
+  -- the same a block higher, and again, up to five levels. That is generous
+  -- enough for a store put anywhere near a turtle however it was stood, and
+  -- it costs a few moves rather than a tour of the neighbourhood.
+  local LEVELS = 5
+  for level = 1, LEVELS do
+    local found = depotAtHand()
+    if found then return found end
 
-  for dir = 0, 3 do
-    turnTo(dir)
-    if not turtle.detect() and moveForward() then
-      found = depotAtHand()
-      if found then return found end
-      -- Back where we started, so the next try is from the same place.
-      -- Opposite the way we came, not opposite whichever way the looking
-      -- left us pointing.
-      turnTo((dir + 2) % 4)
-      if not moveForward() then return nil end
+    for dir = 0, 3 do
+      turnTo(dir)
+      if not turtle.detect() and moveForward() then
+        found = depotAtHand()
+        if found then return found end
+        -- Back where we started, so the next try is from the same place.
+        -- Opposite the way we came, not opposite whichever way the looking
+        -- left us pointing.
+        turnTo((dir + 2) % 4)
+        -- Cannot get back to where we were looking from, so carry on from
+        -- wherever this leaves us rather than abandoning the whole search
+        -- over one square being in the way.
+        if not moveForward() then break end
+      end
     end
+
+    if level < LEVELS and not moveUp() then break end
   end
   return nil
 end
@@ -625,6 +650,8 @@ local function probeDepot()
     print("the store is right here")
     return athand
   end
+  print("nothing storage-shaped within reach - going to look round the")
+  print("coordinator. put turtles beside the store to save them the walk.")
 
   local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
   local ceiling = math.max(travelY, coordPos.y + 8)
