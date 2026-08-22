@@ -1363,30 +1363,79 @@ end
 -- CC reports for a fluid - whether it shows up at all, and whether it says
 -- which are source blocks and which are only flowing - decides how lava can
 -- be dealt with, and that is worth knowing rather than assuming.
+local LOOK_FILE = "look.txt"
+
+-- A turtle screen is a few lines with no way back up them, so this keeps
+-- what it says short and puts the whole of it in a file to read at leisure.
 local function cmdLook()
-  local function describe(where, present, info)
+  local lines = {}
+  local function record(text) lines[#lines + 1] = text end
+
+  local function summary(where, present, info)
+    if not present then return where .. ": nothing" end
+    local bits = {}
+    for key, value in pairs(info.state or {}) do
+      bits[#bits + 1] = tostring(key) .. "=" .. tostring(value)
+    end
+    table.sort(bits)
+    local name = tostring(info.name)
+    if #bits == 0 then return where .. ": " .. name end
+    return where .. ": " .. name .. " " .. table.concat(bits, " ")
+  end
+
+  local function detail(where, present, info)
+    record("")
+    record("[" .. where .. "]")
     if not present then
-      print(where .. ": nothing (air, or a fluid CC does not report)")
+      record("  nothing here - air, or something CC does not report")
       return
     end
-    print(where .. ": " .. tostring(info.name))
-    for key, value in pairs(info.state or {}) do
-      print(("   state.%s = %s"):format(tostring(key), tostring(value)))
+    record("  name  " .. tostring(info.name))
+    local keys = {}
+    for key in pairs(info.state or {}) do keys[#keys + 1] = tostring(key) end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+      record(("  state %s = %s"):format(key, tostring(info.state[key])))
     end
     local tags = {}
     for tag in pairs(info.tags or {}) do tags[#tags + 1] = tag end
-    if #tags > 0 then
-      table.sort(tags)
-      print("   tags: " .. table.concat(tags, ", "))
-    end
+    table.sort(tags)
+    for _, tag in ipairs(tags) do record("  tag   " .. tag) end
   end
 
-  print("detect: front=" .. tostring(turtle.detect())
-    .. " up=" .. tostring(turtle.detectUp())
-    .. " down=" .. tostring(turtle.detectDown()))
-  describe("front", turtle.inspect())
-  describe("up", turtle.inspectUp())
-  describe("down", turtle.inspectDown())
+  local fp, fi = turtle.inspect()
+  local up, ui = turtle.inspectUp()
+  local dp, di = turtle.inspectDown()
+
+  -- Short enough to read on the turtle itself.
+  print(summary("front", fp, fi))
+  print(summary("up", up, ui))
+  print(summary("down", dp, di))
+  print(("detect f=%s u=%s d=%s"):format(
+    tostring(turtle.detect()), tostring(turtle.detectUp()),
+    tostring(turtle.detectDown())))
+
+  -- And the whole of it on disk.
+  record("flatten " .. tostring(common.VERSION)
+    .. " look, turtle " .. os.getComputerID())
+  local here = gpsPos(2)
+  if here then record("at " .. common.formatPos(here)) end
+  record(("detect  front=%s up=%s down=%s"):format(
+    tostring(turtle.detect()), tostring(turtle.detectUp()),
+    tostring(turtle.detectDown())))
+  detail("front", fp, fi)
+  detail("up", up, ui)
+  detail("down", dp, di)
+
+  local file = fs.open(LOOK_FILE, "a")
+  if not file then
+    print("(could not write " .. LOOK_FILE .. ")")
+    return
+  end
+  for _, line in ipairs(lines) do file.writeLine(line) end
+  file.writeLine("")
+  file.close()
+  print("added to " .. LOOK_FILE .. " - 'edit " .. LOOK_FILE .. "' to read")
 end
 
 local function cmdStatus()
