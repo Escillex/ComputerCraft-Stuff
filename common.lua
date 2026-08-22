@@ -12,7 +12,7 @@ common.HOSTNAME = "coordinator"
 -- startup and the coordinator refuses to talk to a turtle running anything
 -- else, so a computer quietly still running last week's copy shows up
 -- straight away instead of behaving strangely for an hour.
-common.VERSION = "2026-08-22t"
+common.VERSION = "2026-08-22u"
 
 -- Worker -> coordinator
 common.HELLO       = "hello"
@@ -40,7 +40,11 @@ common.HEARTBEAT_INTERVAL = 5   -- seconds between worker position pings
 common.MISSING_AFTER      = 25  -- seconds of silence before a turtle is "missing"
 common.CELL_SPACING       = 2   -- min Chebyshev gap between two active cells
 common.MAX_CELL_ATTEMPTS  = 3   -- real obstacles before a cell is written off
-common.MAX_CELL_RETRIES   = 12  -- times a cell may be handed back over traffic
+-- Traffic is not failure. A column handed back because somebody was
+-- standing in it will come good once the crowd thins, so this wants to be
+-- high enough that a busy fleet never writes one off - unlike the three
+-- strikes for a column blocked by something that is actually there.
+common.MAX_CELL_RETRIES   = 60
 -- A turtle that has gone quiet loses the chest immediately (the sweep sees
 -- to that); this is only a backstop for one that is still alive but wedged.
 common.DEPOT_TIMEOUT      = 600

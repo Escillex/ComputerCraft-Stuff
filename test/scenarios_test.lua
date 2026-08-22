@@ -1719,6 +1719,210 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== three turtles filling at once ===")
+--------------------------------------------------------------------------
+do
+  -- Filling has only ever been tried one turtle at a time. Several of them
+  -- have to keep out of each other's way while each is laying solid ground
+  -- behind itself, and only one of them may ever be on the road.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 107, minY = 60, maxY = 64, minZ = 200, maxZ = 207 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 30 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+  for _ = 1, 8 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 3 do
+    local w = sim.addMachine({ id = 300 + i, name = "f" .. (300 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(60000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+
+  for _, w in ipairs(crew) do
+    check(not w.crash, w.name .. " did not crash"
+      .. (w.crash and (": " .. tostring(w.crash)) or ""))
+  end
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= MATERIAL then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("they filled every block (%d empty)"):format(air))
+  check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
+
+  local bumps = 0
+  for _, w in ipairs(crew) do bumps = bumps + w.bumps end
+  print(("        %d collisions between them"):format(bumps))
+end
+
+--------------------------------------------------------------------------
+print("\n=== a fleet far too big for the job ===")
+--------------------------------------------------------------------------
+do
+  -- Eight turtles on an area that has room for one or two. The ones there
+  -- is no work for should be told so and clear off out of the area, rather
+  -- than hovering over it getting in the way of the ones that are working.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 62, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 8 do
+    local w = sim.addMachine({ id = 310 + i, name = "t" .. (310 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + ((i - 1) % 3) },
+      facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+
+  -- Catch them mid-job and see where the idle ones are standing.
+  sim.run(20000, function()
+    local working = 0
+    for _, w in ipairs(crew) do if w.digs > 0 then working = working + 1 end end
+    return working >= 2
+  end)
+  sim.run(sim.now() + 60)
+
+  local inside = 0
+  for _, w in ipairs(crew) do
+    if w.alive
+       and w.pos.x >= box.minX and w.pos.x <= box.maxX
+       and w.pos.z >= box.minZ and w.pos.z <= box.maxZ then
+      inside = inside + 1
+    end
+  end
+  check(inside <= 2,
+    ("the spare turtles got out of the area (%d still over it)"):format(inside))
+
+  local toldOff = 0
+  for _, w in ipairs(crew) do
+    for _, line in ipairs(w.log) do
+      if line:find("standing clear", 1, true) then toldOff = toldOff + 1 break end
+    end
+  end
+  check(toldOff > 0, ("and were told why (%d stood down)"):format(toldOff))
+
+  sim.run(60000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+  check(cleared(sim, box) == 0,
+    ("and the job still finished (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
+print("\n=== too big a fleet, under a ceiling ===")
+--------------------------------------------------------------------------
+do
+  -- Same crowd, but with something built over the area. There is no above
+  -- to stand down into, so a turtle that goes looking for one spends the
+  -- rest of the job trying to climb into a ceiling. They have to leave
+  -- sideways, at the height the job is worked at.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 62, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos = buildWorld(sim, box)
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.maxY + 1, box.maxY + 4 do
+        sim.setBlock(x, y, z, "minecraft:obsidian")
+      end
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 6 do
+    local w = sim.addMachine({ id = 320 + i, name = "r" .. (320 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + ((i - 1) % 3) },
+      facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+
+  sim.run(20000, function()
+    local working = 0
+    for _, w in ipairs(crew) do if w.digs > 0 then working = working + 1 end end
+    return working >= 2
+  end)
+  sim.run(sim.now() + 90)
+
+  local stuckHigh, inside = 0, 0
+  for _, w in ipairs(crew) do
+    if w.alive then
+      if w.pos.y > box.maxY then stuckHigh = stuckHigh + 1 end
+      if w.pos.x >= box.minX and w.pos.x <= box.maxX
+         and w.pos.z >= box.minZ and w.pos.z <= box.maxZ then
+        inside = inside + 1
+      end
+    end
+  end
+  check(stuckHigh == 0,
+    ("none of them tried to wait above the ceiling (%d did)"):format(stuckHigh))
+  check(inside <= 2,
+    ("the spare ones left the area (%d still over it)"):format(inside))
+
+  sim.run(60000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  for _, l in ipairs(coord.log) do if l:find("skipped") then print("        | " .. l) end end
+  check(cleared(sim, box) == 0,
+    ("and the job finished (%d blocks left)"):format(cleared(sim, box)))
+
+  local broken = 0
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.maxY + 1, box.maxY + 4 do
+        if sim.getBlock(x, y, z) ~= "minecraft:obsidian" then broken = broken + 1 end
+      end
+    end
+  end
+  check(broken == 0, ("and the ceiling is untouched (%d broken)"):format(broken))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

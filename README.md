@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22t (turtle 7)
+flatten 2026-08-22u (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -226,6 +226,18 @@ Towards the end of a job the last few columns are too close together to
 share out, so most of the fleet has nothing to do. Rather than stand about
 on the site getting in the way, an idle turtle waits above the area, each
 one at its own height.
+
+**Bring as many turtles as you like.** When there is no room for one it is
+told so and clears off out of the area entirely, waiting on the side the
+store is on and asking again now and then:
+
+```
+no room for me on this job - standing clear
+```
+
+They come back as the job opens up. Nothing needs sizing to the area, and
+a turtle standing down is not one to go and rescue - `list` shows it as
+`stood down`.
 
 ## When something goes wrong
 

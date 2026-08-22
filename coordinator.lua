@@ -446,8 +446,13 @@ local function handle(id, msg)
         floorPatch = floorPatch }, msg.nonce)
       save()
     else
-      -- Everything left is either taken or too near another turtle.
-      reply(id, { type = common.NO_CELL }, msg.nonce)
+      -- Nothing that can be given out: what is left is either being worked
+      -- already or sits too close to a turtle that is working it. Either
+      -- way there is more fleet here than there is room for, so this one is
+      -- told to stand down and get out of the way rather than hover over
+      -- the job waiting for a gap that is not coming.
+      entry.state = "stood down"
+      reply(id, { type = common.NO_CELL, standDown = true }, msg.nonce)
     end
 
   elseif msg.type == common.CELL_DONE then

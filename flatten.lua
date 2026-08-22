@@ -295,7 +295,14 @@ local function goToXZ(x, z, floorY, ceiling)
       end
       climbs = climbs + 1
       local climbed, climbWhy = moveUp()
-      if not climbed then return false, climbWhy or lastWhy end
+      if not climbed then
+        -- What stopped the journey is whatever was in the way along it, not
+        -- the ceiling that turned out to be over the detour. Blame the
+        -- climb and a turtle standing in a doorway under a roof gets
+        -- reported as solid rock, which writes the column off after three
+        -- goes instead of handing it back as the traffic it was.
+        return false, lastWhy ~= "blocked" and lastWhy or climbWhy
+      end
     elseif climbs > 0 and pos.y > (floorY or pos.y) and not turtle.detectDown() then
       if moveDown() then climbs = climbs - 1 end
     end
@@ -317,8 +324,39 @@ local function goTo(x, y, z, travelY, ceiling)
     goToY(math.max(travelY, pos.y))
   end
   local ok, why = goToXZ(x, z, travelY, ceiling)
+
+  -- Coming back from the store a turtle is often a little above the height
+  -- the job is worked at, and with something built over the area that is
+  -- the underside of it. Dropping back down to the working height and
+  -- trying again gets it in. Only after the first attempt, though: coming
+  -- down before crossing anything would land it back at the foot of the
+  -- wall it had just climbed.
+  if not ok and travelY and pos.y > travelY then
+    goToY(travelY)
+    ok, why = goToXZ(x, z, travelY, ceiling)
+  end
+
   if not ok then return false, why end
-  return goToY(y)
+
+  local down, downWhy = goToY(y)
+  if down then return true end
+
+  -- Stranded on top of the job: it climbed clear of something on its way
+  -- here, crossed over the area at that height, and has now found that what
+  -- it crossed was the roof of the place it was trying to get into. Get
+  -- back off the area, come down outside where there is no roof, and walk
+  -- in from the side.
+  if box and pos.y > box.maxY then
+    local outward = (pos.x - box.minX < box.maxX - pos.x)
+      and box.minX - 1 or box.maxX + 1
+    if goToXZ(outward, pos.z) and goToY(y) then
+      local backOk, backWhy = goToXZ(x, z, travelY, ceiling)
+      if backOk then return goToY(y) end
+      return false, backWhy
+    end
+  end
+
+  return false, downWhy
 end
 
 --------------------------------------------------------------------------
@@ -805,17 +843,61 @@ end
 -- Mining
 --------------------------------------------------------------------------
 
--- With nothing to do, get off the travel plane. Towards the end of a job
--- the last few columns are too close together to share out, so most of the
--- fleet ends up idle - and an idle turtle sat in the middle of the site is
--- something the ones still working have to keep going round. Each turtle
+-- With nothing to do for a moment, get off the travel plane. Each turtle
 -- waits at its own height above the area so they do not stack up on each
 -- other either.
 local function parkOutOfTheWay()
   if not box then return end
+  -- Already off the site: nothing to get out of the way of, and climbing
+  -- from out here is how a turtle ends up on the roof of something built
+  -- over the area, having gone up outside it, across the top and found no
+  -- way back down.
+  if pos.x < box.minX or pos.x > box.maxX
+     or pos.z < box.minZ or pos.z > box.maxZ then
+    return
+  end
   local parkY = box.maxY + 2 + (os.getComputerID() % 4)
   if pos.y >= parkY then return end
   goToY(parkY)
+end
+
+-- Somewhere out of the way entirely, on the side of the area the store is
+-- on, spread along that side so a whole fleet standing down does not end up
+-- in a heap. Above the area is not out of the way enough for a turtle that
+-- has been told there is no work for it: it still has to be gone round.
+local function standDownSpot()
+  if not box then return nil end
+  local id = os.getComputerID()
+  local target = (depot and depot.dock) or coordPos
+  -- At the area's own height, not above it. With something built over the
+  -- area there is no above to get to, and a turtle told to stand down would
+  -- spend the rest of the job trying to climb into a ceiling.
+  local y = box.maxY
+
+  local alongZ = box.minZ + (id % (box.maxZ - box.minZ + 1))
+  local alongX = box.minX + (id % (box.maxX - box.minX + 1))
+
+  if target and target.x > box.maxX then
+    return { x = box.maxX + 3, y = y, z = alongZ }
+  elseif target and target.x < box.minX then
+    return { x = box.minX - 3, y = y, z = alongZ }
+  elseif target and target.z > box.maxZ then
+    return { x = alongX, y = y, z = box.maxZ + 3 }
+  end
+  return { x = alongX, y = y, z = box.minZ - 3 }
+end
+
+local function standDown()
+  local spot = standDownSpot()
+  if not spot then return end
+  -- Already clear of the area, so there is nothing to do but wait.
+  if pos.x < box.minX or pos.x > box.maxX
+     or pos.z < box.minZ or pos.z > box.maxZ then
+    return
+  end
+  -- Out at the height the job is worked at, which is a road that exists
+  -- whether or not there is sky over the area.
+  goTo(spot.x, spot.y, spot.z, box.maxY)
 end
 
 -- Clear one column of the box from the top down, patch the floor beneath
@@ -1178,6 +1260,15 @@ local function workerLoop()
           trouble("could not find the resupply store: " .. tostring(why))
           sleep(5)
         end
+      elseif reply.type == common.NO_CELL and reply.standDown then
+        -- More fleet than there is room for. Get right out of the area and
+        -- wait there, and ask less often while doing it.
+        if state ~= "stood down" then
+          print("no room for me on this job - standing clear")
+        end
+        state = "stood down"
+        standDown()
+        sleep(15)
       elseif reply.type == common.NO_CELL then
         state = "parked"
         parkOutOfTheWay()
