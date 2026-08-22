@@ -628,7 +628,8 @@ local function cmdStatus()
   print("coordinator " .. os.getComputerID() .. " at " .. common.formatPos(myPos))
   print("depot: " .. (depot and common.formatPos(depot.store) or "not found yet"))
   print("mode: " .. mode .. (mode == "fill"
-    and (" with " .. (material or "NOTHING SET")) or ""))
+    and (" with " .. (material and table.concat(material, " ") or "NOTHING SET"))
+    or ""))
   if mode == "clear" then
     print("floor: " .. (floorPatch and "capping holes underneath"
       or "leaving holes underneath open"))
@@ -707,16 +708,29 @@ local function cmdMode(rest)
   end
 end
 
+-- More than one may be named. The first is what gets laid into empty space;
+-- the rest are blocks that count as good enough where they already are, so
+-- a column of them is left alone and any that do come out go back as they
+-- were. Filling a plot with dirt should not strip the grass off it.
 local function cmdMaterial(rest)
-  local want = (rest or ""):match("^%s*(%S+)%s*$")
-  if not want then
-    print("usage: material <block id>, e.g. material minecraft:cobblestone")
-    if material then print("currently: " .. material) end
+  local wanted = {}
+  for word in (rest or ""):gmatch("%S+") do wanted[#wanted + 1] = word end
+
+  if #wanted == 0 then
+    print("usage: material <block id> [more block ids]")
+    print("  e.g. material minecraft:dirt minecraft:grass_block")
+    print("  the first is what gets laid down; the others are left where")
+    print("  they already are and put back if they come out")
+    if material then print("currently: " .. table.concat(material, " ")) end
     return
   end
-  material = want
+
+  material = wanted
   writeNow()
-  print("filling with " .. material .. " - keep the store stocked with it")
+  print("filling with " .. wanted[1] .. " - keep the store stocked with it")
+  if #wanted > 1 then
+    print("leaving alone: " .. table.concat(wanted, " ", 2))
+  end
 end
 
 local function cmdFloor(rest)

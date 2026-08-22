@@ -2125,6 +2125,80 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== filling with dirt without stripping the grass ===")
+--------------------------------------------------------------------------
+do
+  -- Naming more than one block: the first is what gets laid into empty
+  -- space, the rest count as good enough where they already are. Filling a
+  -- plot with dirt has no business taking the grass off the top of it.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 61, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, box.maxY, z, "minecraft:grass_block")
+      for y = box.minY, box.maxY - 1 do
+        if (x + y + z) % 2 == 0 then sim.setBlock(x, y, z, nil)
+        else sim.setBlock(x, y, z, "minecraft:andesite") end
+      end
+    end
+  end
+
+  for _ = 1, 12 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Counted after marking: standing the marker turtle in a corner takes
+  -- that block out, and that is the harness rather than the job.
+  local grass = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      if sim.getBlock(x, box.maxY, z) == "minecraft:grass_block" then
+        grass[#grass + 1] = { x = x, z = z }
+      end
+    end
+  end
+
+  local w = sim.addMachine({ id = 430, name = "grassy", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material minecraft:dirt minecraft:grass_block")
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+
+  local lost = 0
+  for _, g in ipairs(grass) do
+    if sim.getBlock(g.x, box.maxY, g.z) ~= "minecraft:grass_block" then lost = lost + 1 end
+  end
+  check(lost == 0, ("the grass is still on top (%d of %d gone)"):format(lost, #grass))
+
+  local air, wrong = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY - 1 do
+      for z = box.minZ, box.maxZ do
+        local b = sim.getBlock(x, y, z)
+        if b == nil then air = air + 1
+        elseif b ~= "minecraft:dirt" then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(air == 0, ("and everything under it is solid (%d empty)"):format(air))
+  check(wrong == 0, ("all of it dirt (%d wrong)"):format(wrong))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

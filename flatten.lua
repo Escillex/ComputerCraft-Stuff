@@ -66,6 +66,19 @@ local function tell(msg)
   rednet.send(coordId, msg, common.PROTOCOL)
 end
 
+-- The first block named is what gets laid into empty space. The rest count
+-- as good enough where they already are, so a column made of them is left
+-- alone and any that do come out go back as they were - filling a plot with
+-- dirt has no business stripping the grass off it.
+local function isMaterial(name)
+  if not name or not material then return false end
+  name = name:lower()
+  for _, id in ipairs(material) do
+    if name == id:lower() then return true end
+  end
+  return false
+end
+
 local function saveLocal()
   common.saveState(STATE_FILE, { pos = pos, facing = facing, depot = depot })
 end
@@ -622,10 +635,10 @@ local MATERIAL_SLOTS = 8   -- half the inventory, leaving room for spoil
 
 local function materialSlots()
   if not material then return 0 end
-  local wanted, n = material:lower(), 0
+  local n = 0
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
-    if item and item.name:lower() == wanted then n = n + 1 end
+    if item and isMaterial(item.name) then n = n + 1 end
   end
   return n
 end
@@ -636,7 +649,6 @@ end
 local function takeMaterial(dir)
   if not material then return false end
   local suck, drop = SUCK[dir or "forward"], DROP[dir or "forward"]
-  local wanted = material:lower()
   local held = {}
 
   for slot = 1, 16 do
@@ -645,7 +657,7 @@ local function takeMaterial(dir)
       turtle.select(slot)
       if not suck(64) then break end
       local item = turtle.getItemDetail(slot)
-      if not (item and item.name:lower() == wanted) then
+      if not (item and isMaterial(item.name)) then
         -- Hold onto it while we keep looking. The store fills up with spoil
         -- as the job goes on, so the thing we came for can be a long way
         -- down it, and every free slot is worth using to dig it out.
@@ -748,10 +760,9 @@ local function useDepot()
   -- Hand over the spoil but hold on to what we are filling with.
   local keep = fillSlot()
   if material then
-    local wanted = material:lower()
     for slot = 1, 16 do
       local item = turtle.getItemDetail(slot)
-      if item and item.name:lower() == wanted then keep = slot break end
+      if item and isMaterial(item.name) then keep = slot break end
     end
   end
   if not dumpInventory(dir, keep) then
@@ -763,7 +774,8 @@ local function useDepot()
   if mode == "fill" then
     -- Leave with a load of whatever we are filling with.
     if not takeMaterial(dir) then
-      trouble("no " .. tostring(material) .. " in the store - I cannot fill without it")
+      trouble("no " .. tostring(material and material[1])
+        .. " in the store - I cannot fill without it")
     end
   else
     -- Leave with something to patch floors with, even if that means taking
@@ -1066,17 +1078,25 @@ local function goToViaSpine(cx, cz, travelY, ceiling)
   return goToY(box.maxY)
 end
 
-local function selectMaterial()
-  if not material then return false end
-  local wanted = material:lower()
+local function selectNamed(want)
+  if not want then return false end
+  want = want:lower()
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
-    if item and item.name:lower() == wanted then
+    if item and item.name:lower() == want then
       turtle.select(slot)
       return true
     end
   end
   return false
+end
+
+-- Whatever came out of this spot, if we still have it and it counts. Else
+-- the block we are filling with.
+local function selectMaterial(wasHere)
+  if not material then return false end
+  if wasHere and isMaterial(wasHere) and selectNamed(wasHere) then return true end
+  return selectNamed(material[1])
 end
 
 -- Which way home is. Columns are given out furthest-from-the-store first,
@@ -1130,8 +1150,10 @@ local function towardStore()
   return dz >= 0 and 2 or 0
 end
 
-local function layInto(place)
-  if not selectMaterial() then return false, "out of " .. tostring(material) end
+local function layInto(place, wasHere)
+  if not selectMaterial(wasHere) then
+    return false, "out of " .. tostring(material[1])
+  end
   local ok = place()
   turtle.select(1)
   return ok
@@ -1145,9 +1167,9 @@ end
 -- does the turtle have to go sideways instead, and then only onto ground
 -- nobody has filled yet - stepping into a finished column would mean
 -- digging it back out to get in, which just moves the hole along.
-local function retreatAndSeal()
+local function retreatAndSeal(wasHere)
   if not turtle.detectUp() and moveUp() then
-    local laid, why = layInto(turtle.placeDown)
+    local laid, why = layInto(turtle.placeDown, wasHere)
     if laid then return true end
     return false, why or "could not lay the top block from above"
   end
@@ -1166,7 +1188,7 @@ local function retreatAndSeal()
     turnTo(dir)
     local present, info = turtle.inspect()
     if not present then return true end
-    return not (material and info.name:lower() == material:lower())
+    return not isMaterial(info.name)
   end
 
   local home = towardStore()
@@ -1174,7 +1196,7 @@ local function retreatAndSeal()
     turnTo(home)
     if moveForward() then
       turnTo((facing + 2) % 4)
-      local laid, why = layInto(turtle.place)
+      local laid, why = layInto(turtle.place, wasHere)
       if laid then return true end
       if why then return false, why end
       turnTo((facing + 2) % 4)
@@ -1186,7 +1208,7 @@ local function retreatAndSeal()
       turnTo(dir)
       if not turtle.detect() and moveForward() then
         turnTo((facing + 2) % 4)
-        local laid, why = layInto(turtle.place)
+        local laid, why = layInto(turtle.place, wasHere)
         if laid then return true end
         if why then return false, why end
         turnTo((facing + 2) % 4)
@@ -1224,9 +1246,20 @@ local function fillCell(cell)
   -- up stranded on the roof of the job. So the road is used until the
   -- turtle has stood in a column and looked up once, and from then on it
   -- knows.
+  -- Note what was in each block on the way down, so anything that already
+  -- counts as material goes back exactly as it was. The top block has to be
+  -- looked at from above, because moving into a column is what digs it -
+  -- and the top block is where the grass lives.
+  local wasHere = {}
+
   local ok, why
   if skyOverhead then
-    ok, why = goTo(cell.x, box.maxY, cell.z, box.maxY + 1, box.maxY + 1)
+    ok, why = goTo(cell.x, box.maxY + 1, cell.z, box.maxY + 1, box.maxY + 1)
+    if ok then
+      local present, info = turtle.inspectDown()
+      if present then wasHere[box.maxY] = info.name end
+      ok, why = goToY(box.maxY)
+    end
   end
   if not ok then
     ok, why = goToViaSpine(cell.x, cell.z, box.maxY, box.maxY)
@@ -1241,12 +1274,14 @@ local function fillCell(cell)
 
   while pos.y > box.minY do
     if inventoryFull() then return "full" end
+    local present, info = turtle.inspectDown()
+    if present then wasHere[pos.y - 1] = info.name end
     local moved, reason = moveDown()
     if not moved then return "blocked", reason end
   end
 
   while pos.y < box.maxY do
-    if not selectMaterial() then return "empty" end
+    if not selectMaterial(wasHere[pos.y]) then return "empty" end
     local climbed, climbWhy = moveUp()
     if not climbed then return "blocked", climbWhy end
     if not turtle.placeDown() then
@@ -1256,7 +1291,7 @@ local function fillCell(cell)
     turtle.select(1)
   end
 
-  local sealed, sealWhy = retreatAndSeal()
+  local sealed, sealWhy = retreatAndSeal(wasHere[box.maxY])
   if not sealed then
     if sealWhy and sealWhy:find("out of", 1, true) then return "empty" end
     return "blocked", sealWhy
@@ -1372,7 +1407,8 @@ local function workerLoop()
       -- Out of what it is meant to be laying down: go and get more, and
       -- come back to the same column.
       if status == "empty" then
-        trouble("out of " .. tostring(material) .. " - put some in the store")
+        trouble("out of " .. tostring(material and material[1])
+          .. " - put some in the store")
         local got = depotRun()
         if not got then sleep(5) end
         status = "full"

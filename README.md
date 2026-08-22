@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22y (turtle 7)
+flatten 2026-08-22z (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -127,6 +127,16 @@ so there is nothing to restart. Keep the store stocked with the material -
 turtles fetch it on the same trips they already make, and anything they dig
 out that happens to be the same block goes straight back in, so filling
 stone with stone costs almost nothing.
+
+**More than one block can be named.** The first is what gets laid into
+empty space; the rest count as good enough where they already are, and go
+back exactly as they were if they come out:
+
+```
+> material minecraft:dirt minecraft:grass_block
+```
+
+That fills a plot with dirt and leaves the grass on top of it alone.
 
 Filling replaces what is there rather than working round it, so it deals
 with water and lava for nothing: a block laid into a fluid displaces it.
