@@ -42,16 +42,14 @@ update all
 
 ## What it will and will not break
 
-The turtles only break blocks inside the area you marked, plus **one block
-of headroom** directly above it so they can drop in and climb out.
-Everything else is left alone: on the way to the site they go **over** your
-buildings and terrain, never through them, and anything standing above the
-area stays standing.
+**The marked area is the only thing turtles will ever break.** Not a block
+above it, not a block beside it, not a block under it. On the way to the
+site they go **over** your buildings and terrain, never through them, and
+they will climb a long way to find a route rather than make one.
 
-That matters most when you mark both corners at the same height, which
-gives an area one block tall. A turtle coming from above will not punch
-down through whatever you have built over it - it goes round, and says so
-if it cannot get in.
+A turtle that cannot reach somewhere without breaking something outside the
+area does not go. It reports the column as blocked and moves on, so leave
+your turtles and your store somewhere they can actually be reached from.
 
 If a turtle cannot find a way round, it says so and carries on mining
 rather than tunnelling.
@@ -64,7 +62,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22j (turtle 7)
+flatten 2026-08-22k (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run

@@ -818,11 +818,12 @@ do
     for z = box.minZ, box.maxZ do keep(x, box.minY - 1, z, "minecraft:bedrock") end
   end
 
-  -- Over half of it, well above the layer turtles are allowed. The other
-  -- half is open sky, which is how they get in and out.
+  -- Over half of it, starting at the very first block above the area - the
+  -- layer that used to be fair game for dropping in through. The other half
+  -- is open sky, which is how they get in and out.
   for x = box.minX, box.minX + 1 do
     for z = box.minZ, box.maxZ do
-      for y = HEADROOM + 1, HEADROOM + 3 do keep(x, y, z, "minecraft:oak_planks") end
+      for y = HEADROOM, HEADROOM + 3 do keep(x, y, z, "minecraft:oak_planks") end
     end
   end
 
@@ -892,6 +893,52 @@ do
   check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
     "having got over the wall to the store and back")
   print(("        %d guarded blocks, %d moves"):format(#sacred, w.moves))
+end
+
+--------------------------------------------------------------------------
+print("\n=== the way to the store is walled off high ===")
+--------------------------------------------------------------------------
+do
+  -- A wall between the dig and the store that reaches well above the
+  -- height a turtle would normally travel at. Since nothing outside the
+  -- area may be broken, the only way through is over - which means trying
+  -- again higher rather than giving up at the first altitude that fails.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 60, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local wall = {}
+  for z = box.minZ - 15, box.maxZ + 15 do
+    for y = box.minY - 5, box.maxY + 22 do
+      sim.setBlock(box.maxX + 1, y, z, "minecraft:obsidian")
+      wall[#wall + 1] = { x = box.maxX + 1, y = y, z = z }
+    end
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  -- Barely any fuel, so it has to reach the store early or not at all.
+  local w = sim.addMachine({ id = 170, name = "walled2", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY + 1, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 3 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    ("it climbed over a wall %d blocks above the area to reach the store")
+      :format(box.maxY + 22 - box.maxY))
+  local broken = 0
+  for _, b in ipairs(wall) do
+    if sim.getBlock(b.x, b.y, b.z) ~= "minecraft:obsidian" then broken = broken + 1 end
+  end
+  check(broken == 0, ("without touching it (%d of %d broken)"):format(broken, #wall))
+  check(cleared(sim, box) == 0,
+    ("and cleared the area (%d blocks left)"):format(cleared(sim, box)))
 end
 
 --------------------------------------------------------------------------

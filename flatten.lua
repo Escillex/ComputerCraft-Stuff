@@ -151,9 +151,12 @@ local function mayBreakAt(x, y, z)
   if samePlace(coordPos, x, y, z) then return false end
   if depot and samePlace(depot.store, x, y, z) then return false end
 
+  -- The marked area and nothing else. Not a block above it, not a block
+  -- beside it. A turtle that cannot get where it is going without breaking
+  -- something outside these six faces does not go, and says so.
   return x >= box.minX and x <= box.maxX
      and z >= box.minZ and z <= box.maxZ
-     and y >= box.minY and y <= box.maxY + 1
+     and y >= box.minY and y <= box.maxY
 end
 
 -- Never break anything of the same kind as the coordinator's store either,
@@ -609,11 +612,42 @@ local function claimDepot()
   return nil
 end
 
+-- The altitude the way to the store worked at last time. Nothing outside
+-- the marked area may be broken, so getting there is entirely a matter of
+-- finding a height that clears whatever is in between - and once one is
+-- known it is worth starting from it rather than rediscovering it on every
+-- trip.
+local knownLift = 0
+local LIFTS = { 0, 3, 8, 16, 30 }
+
+local function goToDock()
+  local base = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
+  local why
+
+  -- Whatever worked last time first, then climb higher and higher. A route
+  -- to the store matters more than a few wasted moves: a turtle that cannot
+  -- reach it stops being useful entirely.
+  local tried = { knownLift }
+  for _, lift in ipairs(LIFTS) do
+    if lift ~= knownLift then tried[#tried + 1] = lift end
+  end
+
+  for _, lift in ipairs(tried) do
+    local ok
+    ok, why = goTo(depot.dock.x, depot.dock.y, depot.dock.z, base + lift)
+    if ok then
+      knownLift = lift
+      return true
+    end
+  end
+  return false, why
+end
+
 local function useDepot()
   local dir = depot.dir or "forward"
   local travelY = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
 
-  local ok, why = goTo(depot.dock.x, depot.dock.y, depot.dock.z, travelY)
+  local ok, why = goToDock()
   if not ok then return false, why end
   if dir == "forward" then turnTo(depot.facing) end
 
