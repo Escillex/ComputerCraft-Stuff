@@ -3,7 +3,10 @@
 --   update all            everything (what you usually want)
 --   update flatten        one target, plus anything it needs
 
-local BASE = "https://raw.githubusercontent.com/Escillex/ComputerCraft-Stuff/main/"
+local REPO = "Escillex/ComputerCraft-Stuff"
+local BRANCH = "main"
+local RAW = "https://raw.githubusercontent.com/" .. REPO .. "/"
+local API = "https://api.github.com/repos/" .. REPO .. "/"
 
 -- `save` is the name the file must end up with. Programs get a bare name so
 -- you can type `flatten`; common.lua keeps its extension because the other
@@ -30,13 +33,31 @@ local function targetNames()
   return table.concat(names, ", ")
 end
 
--- GitHub serves raw files through a cache that can hold a stale copy for
--- several minutes after a change is pushed. A unique query string each time
--- gets us the real file rather than whatever the cache happens to be
--- holding, which otherwise looks exactly like an update that did nothing.
-local function freshUrl(source)
-  local stamp = (os.epoch and os.epoch("utc")) or os.time()
-  return BASE .. source .. "?nocache=" .. tostring(stamp)
+-- GitHub serves raw files through a cache that holds a stale copy for
+-- several minutes after a push, and it pays no attention to query strings -
+-- so the usual trick of hanging a timestamp off the end does nothing at
+-- all. Asking for a file by branch can quietly hand back last week's.
+--
+-- A file asked for by commit hash cannot be stale, because that hash only
+-- ever means one thing. So the hash of the branch tip is looked up once,
+-- from the API, which is not behind that cache - and everything after that
+-- is fetched by hash.
+local function currentCommit()
+  local ok, response = pcall(http.get, API .. "commits/" .. BRANCH,
+    { Accept = "application/vnd.github.sha" })
+  if not ok or not response then return nil end
+  local sha = response.readAll()
+  response.close()
+  if type(sha) ~= "string" then return nil end
+  sha = sha:gsub("%s", "")
+  if #sha < 7 then return nil end
+  return sha
+end
+
+local commit    -- filled in before anything is fetched
+
+local function sourceUrl(source)
+  return RAW .. (commit or BRANCH) .. "/" .. source
 end
 
 local function fetch(name)
@@ -46,7 +67,7 @@ local function fetch(name)
   print("updating " .. name .. "...")
   if fs.exists(temp) then fs.delete(temp) end
 
-  if not shell.run("wget", freshUrl(entry.source), temp) or not fs.exists(temp) then
+  if not shell.run("wget", sourceUrl(entry.source), temp) or not fs.exists(temp) then
     if fs.exists(temp) then fs.delete(temp) end
     print(name .. " FAILED - check the network and HTTP settings")
     return false
@@ -101,6 +122,14 @@ local target = (args[1] or ""):lower()
 if target == "" or target == "help" then
   print("usage: update <all|" .. targetNames():gsub(", ", "|") .. ">")
   return
+end
+
+commit = currentCommit()
+if commit then
+  print("fetching " .. commit:sub(1, 7))
+else
+  print("could not reach the API - falling back to the " .. BRANCH .. " branch,")
+  print("which may hand back a copy several minutes old")
 end
 
 local done, allOk = {}, true

@@ -317,6 +317,25 @@ local function makeEnv(m)
     end,
   }
 
+  ----------------------------------------------------------------- http
+  -- Only as much as update.lua asks of it: fetch a URL, hand back
+  -- something with readAll and close. A scenario supplies the answers.
+  env.http = {
+    get = function(url, headers)
+      local body = m.httpGet and m.httpGet(url, headers)
+      if body == nil then return nil, "not found" end
+      local consumed = false
+      return {
+        readAll = function()
+          if consumed then return nil end
+          consumed = true
+          return body
+        end,
+        close = function() end,
+      }
+    end,
+  }
+
   ---------------------------------------------------------------- shell
   env.shell = {
     getRunningProgram = function() return m.program or "flatten" end,
@@ -708,6 +727,7 @@ function sim.addMachine(opts)
     adjacentChest = opts.adjacentChest,
     storeType = opts.storeType,
     shellRun = opts.shellRun,
+    httpGet = opts.httpGet,
     moves = 0,
     digs = 0,
     bumps = 0,
