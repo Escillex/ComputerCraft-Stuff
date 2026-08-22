@@ -296,15 +296,24 @@ themselves, so the cost is the source volume rather than the fluid volume,
 and far less than the volume of the marked box. A lava puddle costs a
 handful of blocks; a lake costs the lake.
 
-**Bottom of the column upwards.** Descend through the fluid to the lowest
-source and climb out laying blocks beneath, which is the motion fill
-already uses.
+**Down the column, then up laying blocks** - the motion fill already uses,
+except that going down breaks nothing: it swims down through the fluid to
+whatever solid ground is under it, then climbs out placing into each source
+beneath. It has to be that way round. `placeDown` fills the block the
+turtle would move into next, so a turtle plugging on the way down seals its
+own route after the first block and cannot dig back out.
 
-**Perimeter last, exactly as the road goes last when filling.** This has
-nothing to do with re-sourcing and everything to do with the turtle: a plug
-is solid, so a turtle that works inwards seals itself in. The interior goes
-first and the perimeter stays wet until the end, because that is the way
-out.
+**Inside out, perimeter last, exactly as the road goes last when filling.**
+This has nothing to do with re-sourcing and everything to do with the
+turtle: a plug is solid, so a turtle that works outside-in seals itself in.
+The interior goes first and the perimeter stays wet until the end, because
+that is the way out.
+
+**Four turtles on the perimeter at most, one to a side.** The outline is a
+ring and every turtle on it is laying blocks behind itself, so they wall
+each other in as readily as they wall themselves in. One to a side is the
+same rule as only one turtle on the road when filling, allowing for the
+outline having four of them.
 
 **No floor or roof containment.** Fluid arriving from above or below the
 marked box is a badly marked box. The area is what was marked.
