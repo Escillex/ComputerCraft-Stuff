@@ -2262,6 +2262,62 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a turtle started beside the store just uses it ===")
+--------------------------------------------------------------------------
+do
+  -- Putting a turtle down next to the store is the sensible way to start
+  -- one, and a turtle that is already standing in the one spot the search
+  -- exists to find has no business walking round the houses to arrive back
+  -- where it began. It should look about, see the store against it, and
+  -- work from there.
+  local function run(where)
+    local sim = freshSim()
+    local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+    local coordPos, chest = buildWorld(sim, box)
+    for _ = 1, 4 do
+      chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+    end
+
+    local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+      adjacentChest = { list = function() return {} end } })
+    sim.boot(coord, "coordinator", {})
+    sim.run(5)
+    markCorners(sim, box)
+
+    local w = sim.addMachine({ id = 450, name = where.name, isTurtle = true,
+      pos = { x = where.x, y = where.y, z = where.z }, facing = where.facing,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    sim.boot(w, "flatten", {})
+    table.insert(coord.console, "start")
+
+    -- Stop the moment the store has been found, and see what it cost.
+    sim.run(20000, function()
+      return table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil
+    end)
+    return w, sim, coord
+  end
+
+  -- The store sits at coordPos + 1 on x. Stand the turtle the other side of
+  -- it, facing back at it.
+  local beside, _, coordBeside = run({ name = "beside", x = 107, y = 64, z = 201,
+    facing = 3 })
+  local away, _, coordAway = run({ name = "away", x = 100, y = 64, z = 203,
+    facing = 1 })
+
+  check(table.concat(beside.log, "\n"):find("the store is right here", 1, true) ~= nil,
+    "the one stood beside it saw it without moving")
+  -- Not nothing: working out which way it faces costs a step, and the
+  -- look-round costs a couple more. But nothing like walking the four sides
+  -- of the coordinator.
+  check(beside.moves * 3 < away.moves,
+    ("at a fraction of the cost (%d moves against %d)")
+      :format(beside.moves, away.moves))
+  check(table.concat(coordBeside.log, "\n"):find("resupply store found at", 1, true) ~= nil
+    and table.concat(coordAway.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    "and both ended up telling the coordinator where it is")
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

@@ -524,10 +524,83 @@ local function dockBesideOf(coord, dir, travelY)
   return nil
 end
 
+-- Whether a block sits right against the coordinator. The store is the
+-- thing touching it, so anything further off is somebody else's chest and
+-- none of our business.
+local function touchesCoordinator(x, y, z)
+  if not coordPos then return false end
+  return math.abs(x - coordPos.x) + math.abs(y - coordPos.y)
+       + math.abs(z - coordPos.z) == 1
+end
+
+-- Look round from where we are standing without moving an inch.
+local function depotAtHand()
+  if not coordPos then return nil end
+
+  local present, info = turtle.inspectDown()
+  if present and common.looksLikeDepot(info.name, depotTypes)
+     and touchesCoordinator(pos.x, pos.y - 1, pos.z) then
+    return {
+      store = { x = pos.x, y = pos.y - 1, z = pos.z },
+      dock  = { x = pos.x, y = pos.y, z = pos.z },
+      dir   = "down",
+    }
+  end
+
+  for dir = 0, 3 do
+    turnTo(dir)
+    local f = common.FACINGS[dir]
+    local sx, sz = pos.x + f.dx, pos.z + f.dz
+    local there, what = turtle.inspect()
+    if there and common.looksLikeDepot(what.name, depotTypes)
+       and touchesCoordinator(sx, pos.y, sz) then
+      return {
+        store  = { x = sx, y = pos.y, z = sz },
+        dock   = { x = pos.x, y = pos.y, z = pos.z },
+        dir    = "forward",
+        facing = dir,
+      }
+    end
+  end
+  return nil
+end
+
+-- A turtle put down beside the store - which is the sensible place to put
+-- one - is already standing in the spot the long walk below exists to find.
+-- It has usually taken a step by now, though: working out which way it
+-- faces means moving, so the store it was next to is round a corner. So it
+-- looks from here, then from each square it can reach in one step, before
+-- anybody goes anywhere near the long way round.
+local function depotWithinReach()
+  local found = depotAtHand()
+  if found then return found end
+
+  for dir = 0, 3 do
+    turnTo(dir)
+    if not turtle.detect() and moveForward() then
+      found = depotAtHand()
+      if found then return found end
+      -- Back where we started, so the next try is from the same place.
+      -- Opposite the way we came, not opposite whichever way the looking
+      -- left us pointing.
+      turnTo((dir + 2) % 4)
+      if not moveForward() then return nil end
+    end
+  end
+  return nil
+end
+
 -- The coordinator knows a store is attached to it but not which side, so
 -- the first turtle that needs it goes and looks at each neighbour in turn.
 local function probeDepot()
   if not coordPos then return nil end
+
+  local athand = depotWithinReach()
+  if athand then
+    print("the store is right here")
+    return athand
+  end
+
   local travelY = math.max(box and box.maxY or coordPos.y, coordPos.y + 1)
   local ceiling = math.max(travelY, coordPos.y + 8)
   -- Far enough down to stand on a store sunk a block into the ground.

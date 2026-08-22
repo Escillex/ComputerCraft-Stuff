@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22za (turtle 7)
+flatten 2026-08-22zb (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -252,9 +252,10 @@ rather than on arrival - so only the one with its turn is ever walking
 there or standing at it. The rest wait where they are, shown as `queuing
 for the depot`. Mined blocks go in it; fuel comes out of it.
 
-Put your turtles down **near the store** when you start them. The first
-thing they do is find it, and starting beside it is the shortest version of
-that errand.
+Put your turtles down **beside the store** when you start them. The first
+thing the fleet does is find it, and a turtle standing next to it looks
+about, sees it, and uses it from where it is - about a sixth of the walking
+of one that has to go and hunt for it.
 
 Turtles find the container by walking round the coordinator and looking at
 what is next to it. They know what to look for because the coordinator
