@@ -523,6 +523,32 @@ local function cmdStart()
   end
 end
 
+-- A column gets written off after a few real failures, and nothing ever
+-- puts it back: the job then finishes with holes in it and the only way to
+-- pick them up was to clear the area and start over, losing everything
+-- already dug. Usually whatever stopped them has since gone - a turtle that
+-- was in the way, a chunk that was not loaded, a wall you have since taken
+-- down - so it is worth another go.
+local function cmdRetry()
+  if not order then
+    print("no area marked yet")
+    return
+  end
+  local n = 0
+  for _, cell in ipairs(order) do
+    if cell.state == "skipped" then
+      cell.state, cell.attempts, cell.retries = "free", 0, 0
+      n = n + 1
+    end
+  end
+  writeNow()
+  if n == 0 then
+    print("no columns have been written off")
+  else
+    print(("%d column(s) back in the pool - 'start' to have another go"):format(n))
+  end
+end
+
 local function cmdClear()
   corners, box, cells, order, depot = {}, nil, nil, nil, nil
   running = false
@@ -536,6 +562,7 @@ local function cmdHelp()
   print("list           every turtle: state, position, last seen")
   print("locate <id>    where one turtle is, even if it has gone quiet")
   print("status         area, progress and depot")
+  print("retry          put the written-off columns back in the pool")
   print("clear          forget the area and start over")
   print("exit           quit the coordinator")
   print("")
@@ -560,6 +587,7 @@ local function commandLoop()
     elseif verb == "list" then cmdList()
     elseif verb == "locate" then cmdLocate(rest)
     elseif verb == "status" then cmdStatus()
+    elseif verb == "retry" then cmdRetry()
     elseif verb == "clear" then cmdClear()
     elseif verb == "help" then cmdHelp()
     elseif verb == "exit" then return

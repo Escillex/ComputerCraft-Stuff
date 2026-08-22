@@ -1151,6 +1151,62 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== picking up columns that got written off ===")
+--------------------------------------------------------------------------
+do
+  -- A pillar of bedrock in the middle of the area: unbreakable, so those
+  -- columns get written off and the job finishes with holes. Take it away
+  -- and 'retry' should put them back rather than making you clear the area
+  -- and dig the whole thing again.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 104, minY = 62, maxY = 64, minZ = 200, maxZ = 204 }
+  local coordPos = buildWorld(sim, box)
+
+  local stuck = { x = 102, z = 202 }
+  for y = box.minY, box.maxY do
+    sim.setBlock(stuck.x, y, stuck.z, "minecraft:bedrock")
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 220, name = "retrier", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  table.insert(coord.console, "status")
+  sim.run(sim.now() + 10)
+  local writtenOff = tonumber(table.concat(coord.log, "\n"):match("(%d+) written off"))
+  check((writtenOff or 0) > 0,
+    ("the bedrock column was written off (%s)"):format(tostring(writtenOff)))
+
+  -- Take the obstruction away and ask for another go.
+  for y = box.minY, box.maxY do sim.setBlock(stuck.x, y, stuck.z, nil) end
+  table.insert(coord.console, "retry")
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 20)
+
+  local after = table.concat(coord.log, "\n")
+  check(after:match("(%d+) column%(s%) back in the pool") ~= nil,
+    "retry put them back")
+
+  local w2 = sim.addMachine({ id = 221, name = "retrier2", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w2, "flatten", {})
+  sim.run(20000, function() return not w2.alive end)
+
+  check(cleared(sim, box) == 0,
+    ("and the area finished properly (%d blocks left)"):format(cleared(sim, box)))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do

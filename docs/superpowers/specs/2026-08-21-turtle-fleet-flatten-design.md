@@ -183,6 +183,41 @@ how many turtles are worth running.
 **Granting a column scans every column.** Fine at nine hundred, slow in the
 tens of thousands.
 
+## Not built yet: fluids, and a mode for draining them
+
+Nothing deals with lava or water. A turtle walks through both without harm
+and without noticing, so a column that opens into either is dug out and
+then quietly refills, and the finished area is a lake. Water is the more
+likely of the two; lava is the one that costs you a turtle's cargo if the
+assumption about turtles surviving it is ever wrong.
+
+A fluid cannot be dug, so the way to remove one is to place a block into it
+and break the block, leaving air. Neighbouring fluid flows straight back,
+which is why this has to be done repeatedly rather than once - and why
+**sources come first**. Plug a source and the flows it fed drain on their
+own; plug a flow and it refills from a source nobody has touched.
+
+**Before any of this can be designed, run `flatten look` at a lava source
+and at a flow a few blocks away.** It prints the block name, the whole
+state table and the tags. Two things decide the design and neither can be
+settled from outside the game:
+
+- whether CC reports a fluid from `turtle.inspect` at all (`detect` is
+  known to ignore liquids)
+- whether `state.level` is exposed, which is what separates a source
+  (level 0) from a flow (1-7) in modern Minecraft
+
+The one bug report on the subject is from 1.12.2, when flowing lava was a
+separate block entirely, so it says nothing about 1.21.
+
+If levels are exposed, a turtle can plug only sources and let the rest
+drain. If they are not, plugging everything still gets there in the end,
+just with more passes.
+
+**Drain mode** would be a third setting beside clear and fill: sweep the
+area for fluid, plug what it finds, sweep again, and stop when a whole pass
+turns up none. It terminates because every source removed stays removed.
+
 ## Out of scope
 
 - Ore-only branch mining, quarry-to-bedrock — this rewrite is a region

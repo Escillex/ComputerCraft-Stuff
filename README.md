@@ -68,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22o (turtle 7)
+flatten 2026-08-22p (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -108,8 +108,19 @@ is what the version line on startup is for.
 | `list` | every turtle: state, position, when it was last heard from |
 | `locate <id>` | where one turtle is (**even if it has gone quiet**) and the last problem it reported |
 | `status` | area, progress, and where the chest is |
+| `retry` | put written-off columns back in the pool and have another go |
 | `clear` | forget the area so you can mark a new one |
 | `exit` | quit |
+
+## Columns it could not finish
+
+A column that defeats a turtle three times over - bedrock, something it
+refuses to break, a spot it cannot reach - gets written off, and `status`
+counts them. The job still finishes; it just finishes with holes.
+
+Once whatever stopped them has gone, `retry` puts every written-off column
+back in the pool and `start` sends the fleet round again. Everything
+already dug stays dug.
 
 ## Losing a turtle
 
