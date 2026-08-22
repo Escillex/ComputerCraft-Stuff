@@ -68,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22m (turtle 7)
+flatten 2026-08-22n (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -130,6 +130,11 @@ to untangle themselves afterwards.
 A turtle will never dig another turtle, a computer, or a chest. If one is
 in the way it waits, and if it is still there a moment later the turtle
 reports back and gets sent somewhere more useful.
+
+Anything **alive** in the way - a colonist on an errand, somebody's cow,
+you - is waited on for a good ten seconds before the turtle so much as
+touches it, and only something that has not moved at all in that time gets
+hit. A few seconds of digging is not worth killing a citizen over.
 
 Only one turtle uses the chest at a time. Mined blocks go in it; fuel
 comes out of it.

@@ -34,6 +34,18 @@ function sim.linkChest(x, y, z, chest)
   chests[key(x, y, z)] = chest
 end
 
+-- Something alive standing in a block: it stops a turtle moving, but there
+-- is no block there to inspect, which is exactly how CC presents a mob or a
+-- player in the way.
+local creatures = {}
+
+function sim.addCreature(x, y, z)
+  creatures[key(x, y, z)] = { hits = 0 }
+  return creatures[key(x, y, z)]
+end
+
+function sim.creatureAt(x, y, z) return creatures[key(x, y, z)] end
+
 function sim.violation(msg)
   violations[#violations + 1] = msg
 end
@@ -478,6 +490,7 @@ local function makeEnv(m)
     end
 
     local function move(x, y, z)
+      if creatures[key(x, y, z)] then return false, "Movement obstructed" end
       local blocker, other = occupant(x, y, z)
       if blocker then
         -- Count turtle-on-turtle jostling separately: it is the thing that
@@ -578,9 +591,21 @@ local function makeEnv(m)
       digUp = function() return digAt(above()) end,
       digDown = function() return digAt(below()) end,
 
-      attack = function() return false end,
-      attackUp = function() return false end,
-      attackDown = function() return false end,
+      attack = function()
+        local c = creatures[key(ahead())]
+        if c then c.hits = c.hits + 1 return true end
+        return false
+      end,
+      attackUp = function()
+        local c = creatures[key(above())]
+        if c then c.hits = c.hits + 1 return true end
+        return false
+      end,
+      attackDown = function()
+        local c = creatures[key(below())]
+        if c then c.hits = c.hits + 1 return true end
+        return false
+      end,
 
       select = function(n) m.selected = n return true end,
       getSelectedSlot = function() return m.selected end,

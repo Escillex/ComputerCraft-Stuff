@@ -27,6 +27,7 @@ local STATE_FILE = "flatten.state"
 local FUEL_MARGIN = 150       -- fuel kept in hand on top of the trip home
 local STEP_ATTEMPTS = 32      -- tries before a step is called blocked
 local STEP_WAITS = 10         -- of those, how long to wait on another turtle
+local STEP_PATIENCE = 20      -- seconds to give something living to move on
 
 local pos, facing             -- absolute world position and facing index
 local box, depot, coordId, coordPos
@@ -174,16 +175,21 @@ end
 -- Move one block, clearing the way if what is there is safe to break.
 -- Anything protected (another turtle, a chest) is waited out, never dug.
 local function stepDir(dir)
-  local waited = 0
+  local waited, living = 0, 0
   local mayDig = mayBreakAt(stepTarget(dir))
   for _ = 1, STEP_ATTEMPTS do
     if MOVE[dir]() then return true end
 
     local present, info = INSPECT[dir]()
     if not present then
-      -- Nothing solid there, so something alive is standing in the way.
-      ATTACK[dir]()
-      sleep(0.4)
+      -- Nothing solid there, so something alive is in the way. Wait for it.
+      -- Most things that block a turtle are passing through - a colonist on
+      -- an errand, somebody's cow, you - and swinging at them the moment
+      -- they get in the way is a poor trade for a few seconds of digging.
+      -- Only something that has not moved at all gets hit.
+      living = living + 1
+      if living > STEP_PATIENCE then ATTACK[dir]() end
+      sleep(0.5)
     elseif common.isTurtleBlock(info.name) then
       -- Give way, but not forever: reporting back quickly lets the
       -- coordinator send this turtle somewhere useful instead.

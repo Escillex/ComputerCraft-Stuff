@@ -1094,6 +1094,63 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== something alive standing in the way ===")
+--------------------------------------------------------------------------
+do
+  -- A colonist, a cow, or you, stood in a turtle's path. It should wait a
+  -- good while before laying a finger on it: most things in the way are
+  -- passing through, and a few seconds of digging is not worth killing
+  -- somebody's citizen over.
+  local sim = freshSim()
+  -- Big enough that it is certainly still working when we hem it in.
+  local box = { minX = 100, maxX = 111, minY = 56, maxY = 70, minZ = 200, maxZ = 211 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 210, name = "polite", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  -- Digging and walking cost no simulated time, so wait on progress rather
+  -- than the clock: stop the moment it has done some real work.
+  sim.run(20000, function() return w.moves > 60 end)
+  check(w.alive, "the turtle was still working when we hemmed it in")
+
+  -- Ring it with living things, so whichever way it turns it meets one and
+  -- the timing is not down to which way it happened to be facing.
+  local here = { x = w.pos.x, y = w.pos.y, z = w.pos.z }
+  local victims = {}
+  for _, d in ipairs({ { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 },
+                       { 0, 1, 0 }, { 0, -1, 0 } }) do
+    victims[#victims + 1] =
+      sim.addCreature(here.x + d[1], here.y + d[2], here.z + d[3])
+  end
+
+  local function hits()
+    local n = 0
+    for _, v in ipairs(victims) do n = n + v.hits end
+    return n
+  end
+
+  local startedAt = sim.now()
+  sim.run(startedAt + 8)
+  local early = hits()
+  sim.run(startedAt + 90)
+
+
+  check(early == 0,
+    ("nothing was hit in the first eight seconds of being blocked (%d hits)")
+      :format(early))
+  print(("        hits after ninety seconds hemmed in: %d"):format(hits()))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
