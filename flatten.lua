@@ -909,6 +909,36 @@ local function cmdMark(which)
   end
 end
 
+-- Print exactly what the turtle sees around it, state table and all. What
+-- CC reports for a fluid - whether it shows up at all, and whether it says
+-- which are source blocks and which are only flowing - decides how lava can
+-- be dealt with, and that is worth knowing rather than assuming.
+local function cmdLook()
+  local function describe(where, present, info)
+    if not present then
+      print(where .. ": nothing (air, or a fluid CC does not report)")
+      return
+    end
+    print(where .. ": " .. tostring(info.name))
+    for key, value in pairs(info.state or {}) do
+      print(("   state.%s = %s"):format(tostring(key), tostring(value)))
+    end
+    local tags = {}
+    for tag in pairs(info.tags or {}) do tags[#tags + 1] = tag end
+    if #tags > 0 then
+      table.sort(tags)
+      print("   tags: " .. table.concat(tags, ", "))
+    end
+  end
+
+  print("detect: front=" .. tostring(turtle.detect())
+    .. " up=" .. tostring(turtle.detectUp())
+    .. " down=" .. tostring(turtle.detectDown()))
+  describe("front", turtle.inspect())
+  describe("up", turtle.inspectUp())
+  describe("down", turtle.inspectDown())
+end
+
 local function cmdStatus()
   local saved = common.loadState(STATE_FILE)
   print("turtle id: " .. os.getComputerID())
@@ -982,10 +1012,13 @@ elseif command == "mark2" then
   cmdMark(2)
 elseif command == "status" then
   cmdStatus()
+elseif command == "look" then
+  if not turtle then error("this only runs on a turtle", 0) end
+  cmdLook()
 elseif command == "work" then
   if not turtle then error("this only runs on a turtle", 0) end
   cmdWork()
 else
-  print("Usage: flatten [mark1|mark2|status]")
+  print("Usage: flatten [mark1|mark2|status|look]")
   print("  no argument joins the fleet and starts working")
 end

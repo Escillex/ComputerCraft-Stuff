@@ -68,7 +68,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-22n (turtle 7)
+flatten 2026-08-22o (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -190,7 +190,7 @@ The same note shows up against that turtle in `list`, and in full under
 | | |
 |---|---|
 | `coordinator.lua` | runs on the computer: the area, the work queue, the turtle registry |
-| `flatten.lua` | runs on each turtle: `flatten`, `flatten mark1`, `flatten mark2`, `flatten status` |
+| `flatten.lua` | runs on each turtle: `flatten`, `flatten mark1`, `flatten mark2`, `flatten status`, `flatten look` |
 | `common.lua` | the protocol and helpers both sides share |
 | `startup.lua` | boots a turtle straight into work, and restarts it if it falls over |
 | `update.lua` | `update all` |
