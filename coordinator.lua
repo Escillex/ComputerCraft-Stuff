@@ -293,7 +293,12 @@ local function handle(id, msg)
       if running then
         running = false
         save()
-        print("job finished - every column is cleared")
+        if counts.skipped > 0 then
+          print(("job finished - %d column(s) beaten us, 'status' to see")
+            :format(counts.skipped))
+        else
+          print("job finished - every column is cleared")
+        end
       end
       reply(id, { type = common.JOB_DONE }, msg.nonce)
       return
