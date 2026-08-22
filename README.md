@@ -78,7 +78,7 @@ coordinator refuses to talk to a turtle running a different version, so a
 computer still quietly running an old copy shows up immediately:
 
 ```
-flatten 2026-08-23zk (turtle 7)
+flatten 2026-08-23zl (turtle 7)
 ```
 
 If a turtle reports a different version from the coordinator, run
@@ -115,7 +115,7 @@ is what the version line on startup is for. **The coordinator enforces it**
 - a turtle on a different version is refused work outright, and told so:
 
 ```
-turtle 5 is on 2026-08-22y, not 2026-08-23zk - refusing it work
+turtle 5 is on 2026-08-22y, not 2026-08-23zl - refusing it work
   run 'update all' on it and reboot it
 ```
 
@@ -173,6 +173,12 @@ back exactly as they were if they come out:
 ```
 
 That fills a plot with dirt and puts the grass back on top of it.
+
+**`material` is not only for filling.** Clearing uses it to say what to cap
+a hole under the area with, and draining uses it to say what to plug a
+source with - so a pack whose dull block to hand is one this has never
+heard of still works. Name nothing and clearing reaches for dirt and
+draining for cobble, which is what most people have most of.
 
 **Put some of the extra blocks in the store.** A turtle has to break the
 top of a column to get down it, and lays it back afterwards - but only if
@@ -282,7 +288,8 @@ which is the fluid worth reaching: a pool, a flooded cave, a lava lake. It
 goes down each column as far as open space allows, plugs any source it
 finds, takes the plug straight back out, and moves on.
 
-**Keep something dull in the store** - dirt, cobble, gravel. Plugging a
+**Keep something dull in the store** - cobble by default, or whatever you
+name with `material`. Plugging a
 source means laying a block into it and taking that same block straight
 back out, so a turtle needs one block to spend and it gets it back each
 time. It will fetch one from the store on its own; with nothing there to

@@ -2197,6 +2197,68 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== saying what to plug a source with ===")
+--------------------------------------------------------------------------
+do
+  -- 'material' is not only for filling. Draining uses it to say what to
+  -- plug a source with and clearing uses it to say what to cap a hole
+  -- with, so a pack where the dull block to hand is not one this has heard
+  -- of still works. Planks are nobody's idea of a plug, which is the point:
+  -- nothing built in would ever pick them.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 61, maxY = 63, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local pool = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, nil) end
+      if x == box.minX or x == box.maxX or z == box.minZ or z == box.maxZ then
+        for y = box.minY, box.maxY do sim.setBlock(x, y, z, "minecraft:stone") end
+      else
+        sim.setFluid(x, box.minY, z, "minecraft:lava", 0)
+        pool[#pool + 1] = { x = x, y = box.minY, z = z }
+      end
+    end
+  end
+
+  -- The only thing in the store, and nothing built in would choose it.
+  for _ = 1, 2 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:oak_planks", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 98, name = "planky", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "mode drain")
+  table.insert(coord.console, "material minecraft:oak_planks")
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  local left = 0
+  for _, f in ipairs(pool) do
+    if sim.getFluid(f.x, f.y, f.z) then left = left + 1 end
+  end
+  check(left == 0,
+    ("it plugged the sources with what it was told to (%d of %d left)")
+      :format(left, #pool))
+
+  -- And took them back out again, as ever.
+  local plugsLeft = 0
+  for _, f in ipairs(pool) do
+    if sim.getBlock(f.x, f.y, f.z) then plugsLeft = plugsLeft + 1 end
+  end
+  check(plugsLeft == 0, ("and left none of them behind (%d)"):format(plugsLeft))
+end
+
+--------------------------------------------------------------------------
 print("\n=== draining a lava pool without digging the place up ===")
 --------------------------------------------------------------------------
 do

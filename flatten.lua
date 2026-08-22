@@ -478,14 +478,37 @@ local function inventoryFull()
   return true
 end
 
+-- Dull blocks to cap a hole in a floor with, dirt first: a capped hole
+-- under a field wants to look like the field.
 local FILL_BLOCKS = {
   "dirt", "cobblestone", "cobbled_deepslate", "stone", "deepslate",
   "netherrack", "gravel", "sand", "granite", "diorite", "andesite", "tuff",
 }
 
+-- And to plug a fluid with, cobble first: it is what people have most of,
+-- and the plug comes straight back out again so it hardly matters what it
+-- is - only that there is some.
+local PLUG_BLOCKS = {
+  "cobblestone", "cobbled_deepslate", "dirt", "stone", "deepslate",
+  "netherrack", "gravel", "granite", "diorite", "andesite", "tuff",
+}
+
+-- Whatever the operator named comes first, then the dull blocks a turtle
+-- has anyway. 'material' is not just for filling: it says what to cap a
+-- hole with when clearing and what to plug lava with when draining, and
+-- naming nothing is what the defaults above are for.
+local function fillPreference()
+  local want = {}
+  for _, name in ipairs(material or {}) do want[#want + 1] = name:lower() end
+  for _, name in ipairs(mode == "drain" and PLUG_BLOCKS or FILL_BLOCKS) do
+    want[#want + 1] = name
+  end
+  return want
+end
+
 -- Pick something dull to patch a hole in the floor with, preferring dirt.
 local function selectFill()
-  for _, wanted in ipairs(FILL_BLOCKS) do
+  for _, wanted in ipairs(fillPreference()) do
     for slot = 1, 16 do
       local item = turtle.getItemDetail(slot)
       if item and item.name:lower():find(wanted, 1, true) then
@@ -709,7 +732,7 @@ end
 
 -- The slot holding the best thing to patch a floor with, dirt for choice.
 local function fillSlot()
-  for _, wanted in ipairs(FILL_BLOCKS) do
+  for _, wanted in ipairs(fillPreference()) do
     for slot = 1, 16 do
       local item = turtle.getItemDetail(slot)
       if item and item.name:lower():find(wanted, 1, true) then return slot end

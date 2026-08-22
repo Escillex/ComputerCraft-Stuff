@@ -862,15 +862,25 @@ local function cmdMaterial(rest)
   if #wanted == 0 then
     print("usage: material <block id> [more block ids]")
     print("  e.g. material minecraft:dirt minecraft:grass_block")
-    print("  the first is what gets laid down; the others are left where")
-    print("  they already are and put back if they come out")
+    print("  fill:  the first is what gets laid down; the others are left")
+    print("         where they already are and put back if they come out")
+    print("  clear: what to cap a hole under the area with (dirt by default)")
+    print("  drain: what to plug a source with (cobble by default) - it")
+    print("         comes straight back out, so one block does the lot")
     if material then print("currently: " .. table.concat(material, " ")) end
     return
   end
 
   material = wanted
   writeNow()
-  print("filling with " .. wanted[1] .. " - keep the store stocked with it")
+  if mode == "drain" then
+    print("plugging sources with " .. wanted[1]
+      .. " - one is enough, it comes back out")
+  elseif mode == "clear" then
+    print("capping holes with " .. wanted[1] .. " - only used if 'floor' is on")
+  else
+    print("filling with " .. wanted[1] .. " - keep the store stocked with it")
+  end
   if #wanted > 1 then
     print("leaving alone: " .. table.concat(wanted, " ", 2))
     print("  a turtle has to break the top of a column to get down it, and")
