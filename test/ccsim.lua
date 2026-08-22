@@ -485,8 +485,12 @@ local function makeEnv(m)
         if other then m.bumps = m.bumps + 1 end
         return false, "Movement obstructed"
       end
-      if m.fuel <= 0 then return false, "Out of fuel" end
+      if m.fuel <= 0 then
+        m.ranDry = (m.ranDry or 0) + 1
+        return false, "Out of fuel"
+      end
       m.fuel = m.fuel - 1
+      if m.fuel < (m.lowestFuel or math.huge) then m.lowestFuel = m.fuel end
       m.pos = { x = x, y = y, z = z }
       m.moves = m.moves + 1
       return true
@@ -587,6 +591,8 @@ local function makeEnv(m)
         return { name = s.name, count = s.count }
       end,
       getFuelLevel = function() return m.fuel end,
+      -- What a normal turtle holds; an advanced one holds 100000.
+      getFuelLimit = function() return m.fuelLimit or 20000 end,
 
       refuel = function(count)
         local s = m.slots[m.selected]
@@ -651,6 +657,7 @@ function sim.addMachine(opts)
     program = opts.program,
     slots = opts.slots,
     fuel = opts.fuel,
+    fuelLimit = opts.fuelLimit,
     adjacentChest = opts.adjacentChest,
     storeType = opts.storeType,
     shellRun = opts.shellRun,

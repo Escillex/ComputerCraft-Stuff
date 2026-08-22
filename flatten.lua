@@ -467,11 +467,25 @@ local function probeDepot()
   return nil
 end
 
-local function dumpInventory(dir)
+-- The slot holding the best thing to patch a floor with, dirt for choice.
+local function fillSlot()
+  for _, wanted in ipairs(FILL_BLOCKS) do
+    for slot = 1, 16 do
+      local item = turtle.getItemDetail(slot)
+      if item and item.name:lower():find(wanted, 1, true) then return slot end
+    end
+  end
+  return nil
+end
+
+-- Everything goes in the store except one stack to patch floors with. A
+-- turtle that empties itself completely has nothing to fill the next hole
+-- it opens, and leaves it gaping until it happens to dig some more dirt.
+local function dumpInventory(dir, keepSlot)
   local drop = DROP[dir or "forward"]
   local blocked = false
   for slot = 1, 16 do
-    if turtle.getItemCount(slot) > 0 then
+    if slot ~= keepSlot and turtle.getItemCount(slot) > 0 then
       turtle.select(slot)
       drop()
       if turtle.getItemCount(slot) > 0 then blocked = true end
@@ -479,6 +493,30 @@ local function dumpInventory(dir)
   end
   turtle.select(1)
   return not blocked
+end
+
+-- Come away from the store with something to patch floors with. Same walk
+-- as the fuel hunt: pull stacks out, keep the first useful one, hand the
+-- rest straight back rather than sucking them round in circles.
+local function takeFill(dir)
+  if fillSlot() then return true end
+  local suck, drop = SUCK[dir or "forward"], DROP[dir or "forward"]
+  local held = {}
+  for slot = 1, 16 do
+    if turtle.getItemCount(slot) == 0 then
+      turtle.select(slot)
+      if not suck(64) then break end
+      if fillSlot() == slot then return true end
+      held[#held + 1] = slot
+      if #held >= 8 then break end
+    end
+  end
+  for _, slot in ipairs(held) do
+    turtle.select(slot)
+    drop()
+  end
+  turtle.select(1)
+  return fillSlot() ~= nil
 end
 
 -- Walk the store looking for anything burnable. Non-fuel is held in the
@@ -508,18 +546,54 @@ local function takeFuel(target, dir)
   return fuel() >= target
 end
 
+-- The shortest a route could possibly be. Real ones are longer: they climb
+-- to the travel height, go round whatever will not move and come back down
+-- again, so nothing should budget on this figure alone.
 local function tripCost(target)
   return math.abs(pos.x - target.x) + math.abs(pos.y - target.y) + math.abs(pos.z - target.z)
+end
+
+local function columnCost()
+  if not box then return 0 end
+  -- Down the column and back up it, plus a little for lining up.
+  return (box.maxY - box.minY + 1) * 2 + 8
+end
+
+-- What it would take to finish the column in hand and still get back to the
+-- store afterwards. The doubling is the difference between the straight
+-- line and a route that actually has to get there.
+local function reserveFrom(where)
+  if not depot then return FUEL_MARGIN * 4 end
+  local straight = math.abs(where.x - depot.dock.x)
+    + math.abs(where.y - depot.dock.y)
+    + math.abs(where.z - depot.dock.z)
+  return straight * 2 + columnCost() + FUEL_MARGIN
+end
+
+-- Fill right up rather than taking just enough to get home. Fuel in the
+-- tank costs nothing to carry, and a turtle that tops up with a few hundred
+-- spends its life walking back and forth instead of digging.
+local function tankTarget()
+  local limit = turtle.getFuelLimit()
+  if limit == nil or limit == "unlimited" then return FUEL_MARGIN * 8 end
+  return math.floor(limit * 0.75)
 end
 
 local function needsDepot()
   if inventoryFull() then return true end
   if depot then
-    return fuel() < tripCost(depot.dock) + FUEL_MARGIN
+    return fuel() < reserveFrom(pos)
   end
-  -- The chest has not been found yet, so there is no trip to price up.
+  -- The store has not been found yet, so there is no trip to price up.
   -- Go looking while there is still plenty in the tank to get there.
   return fuel() < FUEL_MARGIN * 4
+end
+
+-- Enough to get to that column, work it, and get back from there.
+local function canAfford(cell)
+  if not depot or not box then return true end
+  local top = { x = cell.x, y = box.maxY, z = cell.z }
+  return fuel() >= tripCost(top) * 2 + reserveFrom(top)
 end
 
 -- Only one turtle fits at the chest, so ask the coordinator for a turn
@@ -543,12 +617,15 @@ local function useDepot()
   if not ok then return false, why end
   if dir == "forward" then turnTo(depot.facing) end
 
-  if not dumpInventory(dir) then
+  if not dumpInventory(dir, fillSlot()) then
     trouble("the resupply store is FULL - empty it or I cannot keep mining")
   end
-  if not takeFuel(tripCost(depot.dock) + FUEL_MARGIN * 4, dir) then
-    trouble("no fuel left in the resupply store - put coal in it")
+  if not takeFuel(tankTarget(), dir) and fuel() < reserveFrom(pos) * 2 then
+    trouble("not enough fuel in the resupply store - put coal in it")
   end
+  -- Leave with something to patch floors with, even if that means taking
+  -- back a stack of the dirt just handed over.
+  takeFill(dir)
 
   -- Get off the dock before handing the store on, so the next turtle in the
   -- queue is not walking into this one. Always upwards: when the dock is the
@@ -697,6 +774,22 @@ local function workerLoop()
       elseif reply.type == common.CELL then
         myCell = reply.cell
         print(("cell %d,%d"):format(myCell.x, myCell.z))
+      end
+    end
+
+    -- Work out whether that column is affordable before setting off for
+    -- it, rather than finding out at the bottom of it. Handing it straight
+    -- back costs nothing; running dry halfway down strands the turtle.
+    if myCell and not canAfford(myCell) then
+      tell({
+        type = common.CELL_SKIP, cell = myCell,
+        reason = "too far on the fuel I have", transient = true,
+      })
+      myCell = nil
+      local ok, why = depotRun()
+      if not ok then
+        trouble("could not reach the resupply store: " .. tostring(why))
+        sleep(5)
       end
     end
 

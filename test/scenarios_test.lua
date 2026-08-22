@@ -664,6 +664,69 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== a long walk back to a distant store ===")
+--------------------------------------------------------------------------
+do
+  -- The store a long way from the dig, so every resupply is expensive and
+  -- a turtle that tops up with a few hundred fuel strands itself. Holes in
+  -- the floor throughout, so it also has to still have something to patch
+  -- with after it has emptied itself into the store.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 106, minY = 55, maxY = 70, minZ = 200, maxZ = 206 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  -- Move the whole depot sixty blocks away.
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, nil)
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, nil)
+  coordPos.x = coordPos.x + 60
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  sim.setBlock(coordPos.x + 1, coordPos.y, coordPos.z, "minecraft:chest")
+  sim.linkChest(coordPos.x + 1, coordPos.y, coordPos.z, chest)
+
+  -- Cave under every column, so a floor gets patched on every single one.
+  local holes = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      sim.setBlock(x, box.minY - 1, z, nil)
+      holes[#holes + 1] = { x = x, z = z }
+    end
+  end
+  -- Dirt in the store, which is where a turtle that has just emptied
+  -- itself has to get its patching material from.
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 140, name = "hauler", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 8 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  check(not w.crash, "it did not crash" .. (w.crash and (": " .. tostring(w.crash)) or ""))
+  check((w.ranDry or 0) == 0,
+    ("it never ran the tank dry (%d stalled moves)"):format(w.ranDry or 0))
+  check(cleared(sim, box) == 0,
+    ("it cleared the whole area (%d blocks left)"):format(cleared(sim, box)))
+
+  local unpatched = 0
+  for _, h in ipairs(holes) do
+    if not sim.getBlock(h.x, box.minY - 1, h.z) then unpatched = unpatched + 1 end
+  end
+  check(unpatched == 0,
+    ("every hole in the floor was patched (%d of %d left open)")
+      :format(unpatched, #holes))
+  print(("        lowest fuel reached: %d"):format(w.lowestFuel or -1))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
