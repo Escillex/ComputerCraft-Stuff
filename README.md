@@ -282,6 +282,29 @@ it is:
 > start
 ```
 
+**Water is a different problem from lava.** Draining pulls one source out
+at a time, and water re-sources from its neighbours - so the pool closes up
+behind the turtle and it can sweep forever. Lava never does this, which is
+why draining is really a lava tool.
+
+For water, fill it in and clear it out again:
+
+```
+> mode fill
+> material minecraft:cobblestone
+> start
+   ... wait ...
+> mode clear
+> start
+```
+
+A block laid into a fluid displaces it and stays there, so the whole body
+goes solid at once and there is nothing left to flow. Then clearing empties
+it. Wasteful of material - though you get it all back on the way out - and
+completely safe, which is the trade. Changing mode puts every column back
+in the pool, since a column that is done is only done for the job it was
+done for.
+
 A draining turtle **breaks nothing at all** - not to reach a column, not on
 its way to the store. So it can only get at fluid it can already swim to,
 which is the fluid worth reaching: a pool, a flooded cave, a lava lake. It

@@ -2197,6 +2197,80 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== getting water out by filling it in and clearing it again ===")
+--------------------------------------------------------------------------
+do
+  -- Draining plugs one source at a time and takes the plug straight back
+  -- out, which is fine for lava and wrong for water: water re-sources from
+  -- its neighbours, so the pool closes up behind the turtle. Filling has
+  -- no such trouble, because a block laid into a fluid displaces it and
+  -- stays there - the whole body goes solid at once and nothing is left to
+  -- flow. Then clear it out again.
+  --
+  -- Wasteful of material and completely safe, which is the trade.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 61, maxY = 63, minZ = 200, maxZ = 203 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local pool = {}
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do sim.setBlock(x, y, z, nil) end
+      for y = box.minY, box.minY + 1 do
+        sim.setFluid(x, y, z, "minecraft:water", y == box.minY and 0 or 3)
+        pool[#pool + 1] = { x = x, y = y, z = z }
+      end
+    end
+  end
+
+  for _ = 1, 10 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:cobblestone", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local filler = sim.addMachine({ id = 3, name = "wet", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(filler, "flatten", {})
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material minecraft:cobblestone")
+  table.insert(coord.console, "start")
+  sim.run(60000, function() return not filler.alive end)
+
+  local wet = 0
+  for _, f in ipairs(pool) do if sim.getFluid(f.x, f.y, f.z) then wet = wet + 1 end end
+  check(wet == 0, ("filling put the water out (%d of %d left)"):format(wet, #pool))
+
+  -- Switching mode has to put the columns back in the pool: a column that
+  -- is done is only done for the job it was done for. Without that the
+  -- area sits there full and no work is ever handed out.
+  local dry = sim.addMachine({ id = 4, name = "dry", isTurtle = true,
+    pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.boot(dry, "flatten", {})
+  table.insert(coord.console, "mode clear")
+  table.insert(coord.console, "start")
+  sim.run(sim.now() + 60000, function() return not dry.alive end)
+
+  local left, stillWet = 0, 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) then left = left + 1 end
+        if sim.getFluid(x, y, z) then stillWet = stillWet + 1 end
+      end
+    end
+  end
+  check(left == 0, ("and clearing emptied it again (%d blocks left)"):format(left))
+  check(stillWet == 0, ("with no water back (%d)"):format(stillWet))
+end
+
+--------------------------------------------------------------------------
 print("\n=== saying what to plug a source with ===")
 --------------------------------------------------------------------------
 do

@@ -828,9 +828,30 @@ local function cmdMode(rest)
     print("  drain  take the lava and water out and leave the rest alone")
     return
   end
+  local was = mode
   mode = want
   writeNow()
   print("mode is now " .. mode)
+
+  -- A column that is done is only done for the job it was done for.
+  -- Filling an area solid and then switching to clear used to hand out no
+  -- work at all, because every column was still marked finished - so the
+  -- area sat there full. Put them all back.
+  if was ~= mode and order then
+    local n = 0
+    for _, cell in ipairs(order) do
+      if cell.state ~= "free" then
+        cell.state, cell.attempts, cell.retries = "free", 0, 0
+        n = n + 1
+      end
+    end
+    if n > 0 then
+      writeNow()
+      print(("%d column(s) back in the pool - they were done for %s, not %s")
+        :format(n, was, mode))
+    end
+  end
+
   if mode == "fill" and not material then
     print("set what to fill it with first: material minecraft:cobblestone")
   end

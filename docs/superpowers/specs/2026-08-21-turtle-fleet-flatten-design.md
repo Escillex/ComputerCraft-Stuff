@@ -250,6 +250,35 @@ no longer describes anything, and reports every fault it finds with a count
 rather than fixing things silently - each of these stops the job, so each
 is worth saying out loud.
 
+## Water is not lava, and draining is a lava tool
+
+Draining plugs one source and takes the plug straight back out, and the
+termination argument written above - every source removed stays removed -
+holds for lava and not for water. Flowing water becomes a source again when
+two or more sources sit beside it, so a pool closes up behind the turtle
+and the sweep can run forever. The simulator models fluids as static table
+entries with no spreading at all, so no test here can tell a working drain
+from a broken one on water.
+
+The way out is not a cleverer drain. It is the two modes that already
+exist: fill the body solid, then clear it. A block laid into a fluid
+displaces it and stays put, so the whole body goes at once with nothing
+left to flow, and the material comes back out with the clear pass. It costs
+a store full of cobble for the duration and it cannot go wrong, which is
+the right trade for something that runs unattended.
+
+That needed one fix to work at all: changing mode now puts every column
+back in the pool. A column marked done under fill was still marked done
+under clear, so the second pass handed out no work and the area sat there
+solid.
+
+Better options exist and are not worth it. A local rule - never pull a plug
+while anything beside it is still a source - would keep the cheap behaviour
+almost everywhere. The 1.21 gamerule `waterSourceConversion false` makes
+the current drain correct outright. Both were considered and dropped: the
+first needs a fluid simulator written before it could be trusted, and the
+second costs infinite water everywhere in the world.
+
 ## Draining needs a block to spend, and said nothing when it had none
 
 A source is plugged by laying a block into it and taking that same block
