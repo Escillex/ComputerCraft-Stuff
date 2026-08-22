@@ -279,6 +279,50 @@ the current drain correct outright. Both were considered and dropped: the
 first needs a fluid simulator written before it could be trusted, and the
 second costs infinite water everywhere in the world.
 
+## Agreed design: drain by plugging, perimeter last
+
+Not built. Written down because it took a long conversation to arrive at
+and the reasoning is not obvious from any of the parts.
+
+**Plug every source and leave the block there.** Removing sources in any
+order cannot drain a body of water: a cell is re-sourced by two or more
+orthogonal neighbours, and every perimeter cell of a solid pool has at
+least two - a corner has exactly two, which is the threshold. Diagonals do
+not count, and that does not help. Only a block that stays breaks the rule,
+so plugging is the whole mechanism and the plugs do not come back out.
+
+**Sources only, not flows.** Once every source is solid the flows drain
+themselves, so the cost is the source volume rather than the fluid volume,
+and far less than the volume of the marked box. A lava puddle costs a
+handful of blocks; a lake costs the lake.
+
+**Bottom of the column upwards.** Descend through the fluid to the lowest
+source and climb out laying blocks beneath, which is the motion fill
+already uses.
+
+**Perimeter last, exactly as the road goes last when filling.** This has
+nothing to do with re-sourcing and everything to do with the turtle: a plug
+is solid, so a turtle that works inwards seals itself in. The interior goes
+first and the perimeter stays wet until the end, because that is the way
+out.
+
+**No floor or roof containment.** Fluid arriving from above or below the
+marked box is a badly marked box. The area is what was marked.
+
+It terminates: every plug turns a fluid block solid for good, so the wet
+volume strictly shrinks and the sweep-until-a-pass-finds-nothing loop must
+end.
+
+Drain then means "your material where the fluid was" rather than
+"everything as it was, minus the fluid" - which removes the need to
+remember which blocks were plugs in order to take them out again. `mode
+clear` afterwards empties the area if that is what is wanted.
+
+**Prerequisite: the simulator has to model fluid first.** It currently has
+none - no spread, no levels, no re-sourcing - so a working drain and a
+broken one produce identical test output. Writing this on top of that would
+be the silk-touch mistake a second time.
+
 ## Draining needs a block to spend, and said nothing when it had none
 
 A source is plugged by laying a block into it and taking that same block
