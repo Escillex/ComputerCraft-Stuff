@@ -151,8 +151,57 @@ model — before it goes anywhere near Minecraft. `sh test/run.sh` covers:
 
 Live rollout: single turtle first, then add a second and watch `list`.
 
+## Known problems, not yet fixed
+
+Found during the first real run on a 45 x 19 x 20 area. None of these are
+worth interrupting a job for, but all three should be dealt with before the
+next round of work on mining, and the first one before fill mode is built —
+fill makes every one of them worse, because it hauls material in as well as
+spoil out.
+
+**Turtles refuel to almost nothing.** `useDepot` asks for
+`tripCost(depot.dock) + FUEL_MARGIN * 4`, but the turtle is standing on the
+dock when it runs, so the trip cost is zero and the target collapses to 600
+— three per cent of a normal turtle's twenty thousand. With a nineteen
+block column costing about forty moves that is seven columns a tank. It
+should fill to about three quarters of `turtle.getFuelLevel`'s limit.
+
+**The reserve for getting home is optimistic.** `needsDepot` budgets the
+straight-line distance to the dock plus a flat margin, and no real route is
+straight: they climb to the travel height, go round what they cannot break
+and come back down. It should budget roughly double the straight line, plus
+the cost of the column it is about to start, and a turtle handed a column
+too far away to survive should hand it straight back rather than strand
+itself part way down.
+
+**One dock serialises the fleet.** Only one turtle uses the store at a
+time, which is right for a single chest and wrong for a vault three blocks
+across with faces going spare. The coordinator could hand out several
+docking spots and let turtles use them in parallel. This is the ceiling on
+how many turtles are worth running.
+
+**Granting a column scans every column.** Fine at nine hundred, slow in the
+tens of thousands.
+
 ## Out of scope
 
 - Ore-only branch mining, quarry-to-bedrock — this rewrite is a region
   flatten only (per the job-type decision made this session).
 - Any UI beyond the terminal commands listed above.
+
+## Designed but not built: fill mode
+
+Discussed and agreed, waiting on the fuel work above.
+
+A second mode on the same fleet, filling the marked area solid instead of
+clearing it. `mode clear` / `mode fill` and `material <block id>` on the
+coordinator; both persist and ride along with each cell grant. Travel moves
+one block above the box, since a finished column is solid. A turtle digs
+its column from the top down, then climbs back out placing a block beneath
+itself each step, ending one above the box. Material it digs is reused when
+it matches, so replacing stone with stone costs almost nothing from the
+store; depot runs keep material and dump only spoil.
+
+Existing blocks are replaced rather than worked around: the turtle has to
+pass down through the column regardless, so there is nothing to be saved by
+leaving them.
