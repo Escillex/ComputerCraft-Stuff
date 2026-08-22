@@ -242,22 +242,19 @@ which is why this has to be done repeatedly rather than once - and why
 **sources come first**. Plug a source and the flows it fed drain on their
 own; plug a flow and it refills from a source nobody has touched.
 
-**Before any of this can be designed, run `flatten look` at a lava source
-and at a flow a few blocks away.** It prints the block name, the whole
-state table and the tags. Two things decide the design and neither can be
-settled from outside the game:
+**Measured in the world, on 1.21.1:**
 
-- whether CC reports a fluid from `turtle.inspect` at all (`detect` is
-  known to ignore liquids)
-- whether `state.level` is exposed, which is what separates a source
-  (level 0) from a flow (1-7) in modern Minecraft
+    front: minecraft:lava   state level = 0     <- a source
+    front: minecraft:lava   state level = 2     <- a flow, one block away
+    detect front=false                          <- for both
 
-The one bug report on the subject is from 1.12.2, when flowing lava was a
-separate block entirely, so it says nothing about 1.21.
+So `turtle.inspect` does report fluids, and the level tells a source from a
+flow. `detect` does not see them at all, which is exactly why turtles swim
+through lava at present without noticing it is there. Lava also carries
+`minecraft:replaceable`, which is what lets a block be laid into it.
 
-If levels are exposed, a turtle can plug only sources and let the rest
-drain. If they are not, plugging everything still gets there in the end,
-just with more passes.
+That settles the design: plug only the sources and let the flows drain
+themselves.
 
 **Drain mode** would be a third setting beside clear and fill: sweep the
 area for fluid, plug what it finds, sweep again, and stop when a whole pass
