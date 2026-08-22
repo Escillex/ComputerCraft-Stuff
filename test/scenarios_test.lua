@@ -787,6 +787,114 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== boxed in on every side by somebody's build ===")
+--------------------------------------------------------------------------
+do
+  -- The whole guarantee in one go. The marked area is wrapped in blocks
+  -- that are not part of the job: a floor under it, a roof over half of it,
+  -- and a wall right the way round between it and the store. Every one of
+  -- them has to still be there at the end, and the area still cleared -
+  -- which means going over the wall rather than through it.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 65, minZ = 200, maxZ = 203 }
+  local HEADROOM = box.maxY + 1        -- the one layer turtles may break
+
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do
+      for y = box.minY, box.maxY do
+        sim.setBlock(x, y, z, "minecraft:stone")
+      end
+    end
+  end
+
+  local sacred = {}
+  local function keep(x, y, z, name)
+    sim.setBlock(x, y, z, name)
+    sacred[#sacred + 1] = { x = x, y = y, z = z, name = name }
+  end
+
+  -- Under it.
+  for x = box.minX, box.maxX do
+    for z = box.minZ, box.maxZ do keep(x, box.minY - 1, z, "minecraft:bedrock") end
+  end
+
+  -- Over half of it, well above the layer turtles are allowed. The other
+  -- half is open sky, which is how they get in and out.
+  for x = box.minX, box.minX + 1 do
+    for z = box.minZ, box.maxZ do
+      for y = HEADROOM + 1, HEADROOM + 3 do keep(x, y, z, "minecraft:oak_planks") end
+    end
+  end
+
+  -- All the way round, tall enough that going over means climbing well
+  -- clear of it.
+  for y = box.minY - 2, box.maxY + 5 do
+    for x = box.minX - 1, box.maxX + 1 do
+      keep(x, y, box.minZ - 1, "minecraft:stone_bricks")
+      keep(x, y, box.maxZ + 1, "minecraft:stone_bricks")
+    end
+    for z = box.minZ, box.maxZ do
+      keep(box.minX - 1, y, z, "minecraft:stone_bricks")
+      keep(box.maxX + 1, y, z, "minecraft:stone_bricks")
+    end
+  end
+
+  -- Store and coordinator outside the wall entirely.
+  local coordPos = { x = box.maxX + 8, y = box.minY, z = box.minZ + 1 }
+  sim.setBlock(coordPos.x, coordPos.y, coordPos.z, "computercraft:computer_normal")
+  local chest = sim.addChest(coordPos.x + 1, coordPos.y, coordPos.z)
+  chest.size = 54
+  for _ = 1, 4 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 }
+  end
+  for _ = 1, 2 do
+    chest.slots[#chest.slots + 1] = { name = "minecraft:dirt", count = 64 }
+  end
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+
+  -- Mark from inside, since that is where the corners are.
+  local mk = sim.addMachine({ id = 2, name = "mk", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY, z = box.minZ }, facing = 1 })
+  sim.setBlock(box.minX, box.maxY, box.minZ, nil)
+  sim.boot(mk, "flatten", { "mark1" })
+  sim.run(sim.now() + 30)
+  mk.pos = { x = box.maxX, y = box.minY, z = box.maxZ }
+  sim.setBlock(box.maxX, box.minY, box.maxZ, nil)
+  sim.boot(mk, "flatten", { "mark2" })
+  sim.run(sim.now() + 60)
+  mk.alive, mk.present = false, false
+
+  -- Started under the open half, where it can climb out.
+  local w = sim.addMachine({ id = 160, name = "boxed", isTurtle = true,
+    pos = { x = box.maxX, y = HEADROOM, z = box.maxZ }, facing = 3,
+    slots = { [1] = { name = "minecraft:coal", count = 8 } }, fuel = 0 })
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "start")
+  sim.run(40000, function() return not w.alive end)
+
+  local damaged = {}
+  for _, b in ipairs(sacred) do
+    if sim.getBlock(b.x, b.y, b.z) ~= b.name then
+      damaged[#damaged + 1] = ("%d,%d,%d"):format(b.x, b.y, b.z)
+    end
+  end
+  check(#damaged == 0,
+    ("nothing outside the area was touched (%d of %d blocks damaged)")
+      :format(#damaged, #sacred))
+  for i = 1, math.min(#damaged, 5) do print("        broke " .. damaged[i]) end
+
+  check(cleared(sim, box) == 0,
+    ("and the area was still cleared (%d blocks left)"):format(cleared(sim, box)))
+  check(table.concat(coord.log, "\n"):find("resupply store found at", 1, true) ~= nil,
+    "having got over the wall to the store and back")
+  print(("        %d guarded blocks, %d moves"):format(#sacred, w.moves))
+end
+
+--------------------------------------------------------------------------
 print("\n=== more turtles than there is work for ===")
 --------------------------------------------------------------------------
 do
