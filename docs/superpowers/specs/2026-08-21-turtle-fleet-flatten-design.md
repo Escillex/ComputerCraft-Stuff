@@ -685,11 +685,64 @@ everything with nothing kept, and parks on its own square beside the store.
 Then the program ends. If there is no store, or it cannot be reached, it
 says so on the coordinator, parks where it can and still ends.
 
+## Multi-turtle fill: four more faults
+
+The section above ended by saying multi-turtle fill was sensitive to timing
+and to where the turtles started, and that two scenarios had been passing on
+luck. That is now a test: the same job, run from four starting rows at two,
+four, six and eight turtles - sixteen runs, all of which must fill every
+block. Against the code as it stood before this work it fails on rows +1 and
++3 with 21 and 12 blocks left; the four faults below are what those were.
+
+**A turtle took five hundred blocks to lay five.** `takeMaterial` filled
+every material slot it had, which is 512 blocks. A column five deep needs
+five. Six turtles doing that hold three thousand blocks between them for a
+job needing three hundred, and a perfectly well stocked store runs dry - so
+the turtles that come next find nothing and the fill stops with holes in it.
+The blocks are not lost; they are all in the wrong place at once.
+
+It now takes enough for `COLUMNS_PER_LOAD` columns, which leaves deep jobs
+at the old figure and rations shallow ones - which is where the hoarding
+bites, since those have many columns and little material in each. The ration
+counts only the block being filled with: the others are the ones a turtle
+cannot make, and counting those against the quota means a turtle carrying
+grass comes away with no fill at all and spends its grass on the column.
+
+**Every turtle learned the same fact the destructive way.** Whether there is
+room to travel above the area can only be learned by standing in a column
+and looking up, and until it is known the only route is the road - which
+crosses the area at working height, through columns other turtles have
+finished. One turtle doing that at the start of a job is nothing. Eight
+doing it is eight holes.
+
+It is a fact about the area, not about the turtle, so the coordinator now
+keeps it and hands it out with the welcome and with every column, the same
+way it hands out where the store is. Recalibrating forgets it, since a roof
+can be built or taken down.
+
+Which makes a mis-read expensive in a way it was not before: one turtle's
+wrong answer now reaches the whole fleet. A turtle overhead is not a roof,
+so the look ignores other turtles and waits for a clear one. That guard is
+reasoned rather than measured - the tests pass without it - and it is here
+because sharing is what makes a single bad look matter.
+
+**The road was taken whenever the high route failed.** Failing to get over
+the top is usually traffic, and traffic clears. Dropping to the road because
+of it means crossing finished columns. Where there is sky, the column is
+handed back instead.
+
+**A blocked climb quietly became a crossing.** `goTo` treats the travel
+height as a preference: a turtle that cannot get up there carries on from
+wherever it got to. On the way to the store that means crossing the area at
+working height with a full inventory - straight through the tops of finished
+columns. What blocks the climb is nearly always another turtle sitting on
+top of this one, which is a thing that moves, so the trip now waits for it
+and gives up rather than going through the floor. Giving up on traffic no
+longer makes the turtle forget where the store is, either.
+
 ## Still open
 
-Multi-turtle fill is sensitive to timing and to where the turtles start.
-Two scenarios were passing on luck: moving the crew one block, with no code
-change at all, lost 21 blocks in one and reproduced 99 collisions in the
-other. The four faults above account for what was measurable; the ordering
-itself has not been made robust, and a fleet on a cramped side-docked fill
-is still the worst case.
+The self-inflicted digs are not fixed and are not holes: a turtle handed
+back a column it had partly filled digs its own work out again on the
+retry, and refills it on the way up. It costs time and material, not
+correctness.

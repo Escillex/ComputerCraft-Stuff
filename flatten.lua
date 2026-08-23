@@ -963,6 +963,40 @@ end
 -- again, so nothing should budget on this figure alone.
 local MATERIAL_SLOTS = 8   -- half the inventory, leaving room for spoil
 
+-- How many columns' worth of fill to come away with. Enough that a turtle
+-- is not shuttling back to the store every other column, and no more.
+--
+-- It used to fill all eight slots every time, which is 512 blocks. A column
+-- five deep needs five. Six turtles doing that hold three thousand blocks
+-- between them for a job that needs three hundred, and a store that is
+-- perfectly well stocked runs dry - so the turtles that come next find
+-- nothing, and the fill stops with holes in it. The blocks are not lost,
+-- they are just all in the wrong place at once.
+local COLUMNS_PER_LOAD = 48
+
+local function materialWanted()
+  if not box then return MATERIAL_SLOTS end
+  local perColumn = box.maxY - box.minY + 1
+  local slots = math.ceil(COLUMNS_PER_LOAD * perColumn / 64)
+  return math.max(1, math.min(MATERIAL_SLOTS, slots))
+end
+
+-- Slots of the block being filled with, as opposed to slots of anything
+-- that counts as material. The ration is on this one: the others are the
+-- blocks that only ever come out of the ground - grass, say - and counting
+-- those against the quota means a turtle carrying one comes away from the
+-- store with no fill at all, and spends its grass filling the column.
+local function primarySlots()
+  if not material then return 0 end
+  local want = material[1]:lower()
+  local n = 0
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name:lower() == want then n = n + 1 end
+  end
+  return n
+end
+
 local function materialSlots()
   if not material then return 0 end
   local n = 0
@@ -1040,7 +1074,8 @@ local function takeMaterial(dir)
   held = {}
 
   for slot = 1, 16 do
-    if materialSlots() >= MATERIAL_SLOTS then break end
+    if primarySlots() >= materialWanted()
+       or materialSlots() >= MATERIAL_SLOTS then break end
     if turtle.getItemCount(slot) == 0 then
       turtle.select(slot)
       if not suck(64) then break end
@@ -1134,14 +1169,47 @@ end
 -- worked, and the fleet shared it. Measured over every job here, including
 -- one with a wall twenty-two blocks above the area, it never once needed
 -- anything but the first - so it was carrying a memory of nothing.
+-- The height to cross the area at on the way to and from the store. It is
+-- worked out from the dock, which says nothing about what is underneath the
+-- route: with the store docked at the area's own height, the trip crosses
+-- the area at working height, and in fill mode that is straight through the
+-- tops of columns other turtles have finished. Where there is sky, go over
+-- the top of the work instead and come down at the dock.
+local function dockTravelY()
+  local floor = box and box.maxY or depot.dock.y
+  if mode == "fill" and skyOverhead and box then floor = box.maxY + 1 end
+  return math.max(floor, depot.dock.y + 1)
+end
+
 local function goToDock()
-  local travelY = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
+  local travelY = dockTravelY()
+
+  -- Getting above the work is not optional while filling. Carrying on at
+  -- whatever height it managed means crossing the area at working height,
+  -- and every finished column crossed is dug straight through: a hole in
+  -- work that has been reported done, which nobody lays again.
+  --
+  -- What stops the climb is nearly always another turtle sitting on top of
+  -- this one, which is a thing that moves. So wait for it, and if it really
+  -- will not shift, give the trip up rather than go through the floor.
+  local inside = box and pos.x >= box.minX and pos.x <= box.maxX
+                     and pos.z >= box.minZ and pos.z <= box.maxZ
+  if mode == "fill" and skyOverhead and inside and pos.y < travelY then
+    local up, why
+    for _ = 1, 10 do
+      up, why = goToY(travelY)
+      if up then break end
+      sleep(1)
+    end
+    if not up then return false, why or "cannot get above the work" end
+  end
+
   return goTo(depot.dock.x, depot.dock.y, depot.dock.z, travelY)
 end
 
 local function useDepot()
   local dir = depot.dir or "forward"
-  local travelY = math.max(box and box.maxY or depot.dock.y, depot.dock.y + 1)
+  local travelY = dockTravelY()
 
   local ok, why = goToDock()
   if not ok then return false, why end
@@ -1173,6 +1241,9 @@ local function useDepot()
         end
       end
     end
+    -- How much to keep is not how much to fetch: what is already aboard has
+    -- been carried this far and some of it cannot be got again, so all of it
+    -- stays. Only the loading up is rationed.
     local room = MATERIAL_SLOTS
     for _, list in ipairs({ precious, plain }) do
       for _, s in ipairs(list) do
@@ -1260,7 +1331,10 @@ local function depotRun()
     -- all, because it will go on failing forever. Forget it and look again
     -- next time: the store may have been rebuilt, or the note may have come
     -- from a version that picked its spot differently.
-    if not ok then
+    -- Traffic is not a broken dock. A turtle in the way moves; forgetting
+    -- where the store is because of one means walking the whole cube again
+    -- to find the same chest.
+    if not ok and not common.isTurtleBlock(tostring(why)) then
       print("cannot get to the docking spot any more - will look again")
       depot = nil
       saveLocal()
@@ -1985,15 +2059,35 @@ local function fillCell(cell)
       ok, why = goToY(box.maxY)
     end
   end
-  if not ok then
+  -- The road is for when there is no sky to go over the top in. Where there
+  -- is sky, a route over the top has already been tried and has failed to
+  -- something that is very likely another turtle - and dropping to the road
+  -- because of that means crossing the area at working height, through
+  -- columns that other turtles have finished. Those are made of the fill
+  -- material and the turtle digs straight through them, reopening work that
+  -- has been reported done and that nobody comes back to lay again. Hand
+  -- the column back instead: traffic clears.
+  if not ok and not skyOverhead then
     ok, why = goToViaSpine(cell.x, cell.z, box.maxY, box.maxY)
   end
   if not ok then return "blocked", why end
 
   if skyOverhead == nil then
-    skyOverhead = not turtle.detectUp()
-    print(skyOverhead and "there is sky over the area - going over the top"
-      or "something is over the area - working along the road")
+    -- Another turtle overhead is not a roof. This is decided once and kept
+    -- for the rest of the job, so a single look taken at the wrong moment -
+    -- and with a fleet on the site there is always somebody overhead -
+    -- condemns the turtle to the road, which is the route that crosses
+    -- other turtles' finished columns. Wait for a clear look instead.
+    local present, info = turtle.inspectUp()
+    if not (present and common.isTurtleBlock(info.name)) then
+      skyOverhead = not present
+      print(skyOverhead and "there is sky over the area - going over the top"
+        or "something is over the area - working along the road")
+      -- Pass it on. Everybody else can then take the route over the top
+      -- from their very first column, instead of each finding out for
+      -- themselves along the road.
+      tell({ type = common.SKY_FOUND, sky = skyOverhead })
+    end
   end
 
   while pos.y > box.minY do
@@ -2102,6 +2196,7 @@ local function workerLoop()
         if type(material) == "string" then material = { material } end
         spine = reply.spine or spine
         if reply.floorPatch ~= nil then floorPatch = reply.floorPatch end
+        if reply.sky ~= nil then skyOverhead = reply.sky end
         print(("%s %d,%d"):format(mode == "fill" and "fill" or "cell",
           myCell.x, myCell.z))
       end
@@ -2360,6 +2455,7 @@ local function cmdWork()
   if type(material) == "string" then material = { material } end
   spine = welcome.spine
   if welcome.floorPatch ~= nil then floorPatch = welcome.floorPatch end
+  if welcome.sky ~= nil then skyOverhead = welcome.sky end
   if not box then
     giveUp("no area marked yet - run 'flatten mark1' and 'flatten mark2' on a turtle")
   end

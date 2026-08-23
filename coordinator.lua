@@ -50,6 +50,7 @@ local passes = 0        -- sweeps made so far
 local drainHow = "fast"
 local drainPhase = "plug"   -- 'precise' only: plug everything, then unplug
 local spine             -- the row kept open as a road while filling
+local sky               -- whether there is room to travel above the area
 local material          -- the block id fill mode lays down
 -- Off unless asked for. Capping a hole under a cleared column means laying
 -- a block outside the area that was marked, and the rule everywhere else is
@@ -189,7 +190,7 @@ local function writeNow()
   common.saveState(STATE_FILE, {
     corners = corners, box = box, depot = depot, running = running,
     mode = mode, material = material, floorPatch = floorPatch,
-    marks = encodeCells(),
+    sky = sky, marks = encodeCells(),
   })
 end
 
@@ -223,6 +224,7 @@ local function restore()
   if type(material) == "string" then material = { material } end
   if type(material) ~= "table" or #material == 0 then material = nil end
   if saved.floorPatch ~= nil then floorPatch = saved.floorPatch end
+  if saved.sky ~= nil then sky = saved.sky end
   running = saved.running or false
   if box then
     buildCells()
@@ -480,7 +482,7 @@ local function handle(id, msg)
       type = common.WELCOME, version = common.VERSION,
       box = box, depot = depot, coordPos = myPos, running = running,
       depotTypes = depotTypes, mode = mode, material = material,
-      spine = spine, floorPatch = floorPatch,
+      spine = spine, floorPatch = floorPatch, sky = sky,
       drainHow = drainHow, drainPhase = drainPhase,
     }, msg.nonce)
 
@@ -604,7 +606,7 @@ local function handle(id, msg)
       entry.cell = { x = cell.x, z = cell.z }
       entry.state = "mining"
       reply(id, { type = common.CELL, cell = { x = cell.x, z = cell.z },
-        mode = mode, material = material, spine = spine,
+        mode = mode, material = material, spine = spine, sky = sky,
         floorPatch = floorPatch, drainHow = drainHow, drainPhase = drainPhase,
         -- Which blocks in this column were plugs. Only the turtle that laid
         -- them knows, and only until it hands the column back - so the
@@ -690,6 +692,19 @@ local function handle(id, msg)
     entry.trouble, entry.troubleAt = msg.message, os.clock()
     print(("turtle %d: %s"):format(id, tostring(msg.message)))
     print(("  it is at %s"):format(common.formatPos(msg.pos or entry.pos)))
+
+  elseif msg.type == common.SKY_FOUND then
+    -- Whether there is room to travel above the area is a fact about the
+    -- area, not about the turtle, and the only way to learn it is to stand
+    -- in a column and look up. The turtle that does that has to get there
+    -- somehow, and the only route it can take not knowing is the road -
+    -- which crosses the area at working height, through columns other
+    -- turtles have finished. One turtle doing that at the start of a job is
+    -- nothing; every turtle in the fleet doing it is holes in the fill.
+    if sky == nil and msg.sky ~= nil then
+      sky = msg.sky
+      save()
+    end
 
   elseif msg.type == common.DEPOT_FOUND then
     -- A turtle only says this straight after going and looking, so take its
@@ -1074,6 +1089,17 @@ local function cmdRecalibrate()
   end
 
   if not reportAttached(scanAttached()) then faults = faults + 1 end
+
+  -- Whether there is room to travel above the area is remembered from the
+  -- first turtle that stood in a column and looked up, and it is kept for
+  -- the whole job and across restarts. Build a roof over the site, or take
+  -- one down, and it is wrong from then on - so recalibrating forgets it
+  -- and the next turtle finds out again.
+  if sky ~= nil then
+    print("forgetting whether there is sky over the area - it will be looked at again")
+    sky = nil
+    save()
+  end
 
   -- The note is only worth keeping if it still describes something here.
   if depot and depot.store then

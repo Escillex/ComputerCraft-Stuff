@@ -1509,7 +1509,7 @@ do
       end
     end
   end
-  if #gaps > 0 then print("        gaps: " .. table.concat(gaps, "  ") .. "  (mouth z=" .. MOUTH_Z .. ", road x=" .. box.maxX .. ")") end
+  if #gaps > 0 then print("        gaps: " .. table.concat(gaps, "  ")) end
   check(air == 0, ("it filled every block (%d empty)"):format(air))
   check(wrong == 0, ("all of it the right block (%d wrong)"):format(wrong))
 
@@ -3199,6 +3199,75 @@ do
     "rom was left alone")
   check(table.concat(m.log, "\n"):find("wget", 1, true) ~= nil,
     "it printed how to bootstrap the computer again")
+end
+
+--------------------------------------------------------------------------
+print("\n=== the same fill, from four different starting rows ===")
+--------------------------------------------------------------------------
+do
+  -- Two scenarios in this file were passing on luck. With no change to the
+  -- code at all, moving the crew one block along lost 21 blocks in one of
+  -- them. A fill that works has to work wherever the turtles happen to be
+  -- standing when they are switched on, so this runs the same job four
+  -- times from four different rows and expects the same answer each time.
+  local MATERIAL = "minecraft:cobblestone"
+
+  local function fillFrom(dz, crewN)
+    local sim = freshSim()
+    local box = { minX = 100, maxX = 107, minY = 60, maxY = 64, minZ = 200, maxZ = 207 }
+    local coordPos, chest = buildWorld(sim, box)
+    sim.setBlock(coordPos.x + 1, coordPos.y + 1, coordPos.z, "minecraft:stone")
+    for _ = 1, 30 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+    for _ = 1, 8 do chest.slots[#chest.slots + 1] = { name = "minecraft:coal", count = 64 } end
+
+    local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+      adjacentChest = { list = function() return {} end } })
+    sim.boot(coord, "coordinator", {})
+    sim.run(5)
+    markCorners(sim, box)
+
+    local crew = {}
+    for i = 1, crewN do
+      local w = sim.addMachine({ id = 700 + i, name = "s" .. (700 + i), isTurtle = true,
+        pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 + dz }, facing = 3,
+        slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+      crew[i] = w
+      sim.boot(w, "flatten", {})
+    end
+    table.insert(coord.console, "mode fill")
+    table.insert(coord.console, "material " .. MATERIAL)
+    table.insert(coord.console, "start")
+    sim.run(60000, function()
+      for _, w in ipairs(crew) do if w.alive then return false end end
+      return true
+    end)
+
+    local air, wrong = 0, 0
+    for x = box.minX, box.maxX do
+      for y = box.minY, box.maxY do
+        for z = box.minZ, box.maxZ do
+          local b = sim.getBlock(x, y, z)
+          if b == nil then air = air + 1
+          elseif b ~= MATERIAL then wrong = wrong + 1 end
+        end
+      end
+    end
+    return air, wrong, #sim.violations()
+  end
+
+  local bad = {}
+  for _, n in ipairs({ 2, 4, 6, 8 }) do
+  for dz = 0, 3 do
+    local air, wrong, hurt = fillFrom(dz, n)
+    print(("        %d turtles row +%d: %d empty, %d wrong, %d protected dug")
+      :format(n, dz, air, wrong, hurt))
+    if air > 0 or wrong > 0 or hurt > 0 then
+      bad[#bad + 1] = ("+%d (%d empty, %d wrong)"):format(dz, air, wrong)
+    end
+  end
+  end
+  check(#bad == 0,
+    "it fills the same from every starting row (" .. table.concat(bad, ", ") .. ")")
 end
 
 --------------------------------------------------------------------------
