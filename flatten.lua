@@ -314,41 +314,148 @@ end
 -- progress, and climb over only when both are shut. Height gained that way
 -- is given back as soon as there is floor to drop to, so the turtle does
 -- not end up crawling home along the top of a mountain.
+-- How many steps a journey may spend going the wrong way to get round
+-- something. Enough for a wall the length of the area; not so many that a
+-- turtle can spend a whole job wandering.
+local DETOUR_LIMIT = 64
+
 local function goToXZ(x, z, floorY, ceiling)
   local climbs, lastWhy = 0, "blocked"
-  while pos.x ~= x or pos.z ~= z do
-    local options = {}
-    if pos.x ~= x then options[#options + 1] = pos.x < x and 1 or 3 end
-    if pos.z ~= z then options[#options + 1] = pos.z < z and 2 or 0 end
+  -- Squares already stood on this journey. A detour is only ever offered
+  -- fresh ground, which is what stops a turtle rocking between the same two
+  -- blocks in a doorway until the job ends.
+  local seen, detours = {}, 0
+  -- While going round something: the direction being followed, and the
+  -- directions that were blocked when it started. Only those count as
+  -- getting on with the journey again. Any other direction that happens to
+  -- point at the target from out here is the way back onto the square the
+  -- turtle just stepped off, and taking it is how a detour undoes itself
+  -- one move after making it.
+  local escape, escapeToward = nil, nil
 
-    local moved = false
-    for _, dir in ipairs(options) do
-      turnTo(dir)
-      local ok, why = moveForward()
-      if ok then moved = true break end
-      lastWhy = why or lastWhy
+  local function square(dir)
+    local f = common.FACINGS[dir]
+    return (pos.x + f.dx) .. "," .. (pos.z + f.dz)
+  end
+
+  -- Detours are for the ground around the site, not the site itself.
+  -- Filling only works because turtles keep to the road and never cross a
+  -- column that is already finished; a turtle that wanders over one stands
+  -- on a block nobody comes back to lay. Outside the marked area there is
+  -- no such order to keep, and that is where the things worth walking round
+  -- are anyway - the store, a wall, the doorway of somebody's vault.
+  local function outsideArea(dir)
+    if not box then return true end
+    local f = common.FACINGS[dir]
+    local nx, nz = pos.x + f.dx, pos.z + f.dz
+    return nx < box.minX or nx > box.maxX or nz < box.minZ or nz > box.maxZ
+  end
+
+  while pos.x ~= x or pos.z ~= z do
+    seen[pos.x .. "," .. pos.z] = true
+
+    -- Directions that close the distance, and the ones that open it. The
+    -- second list is the way out of a dead end.
+    local toward, aside = {}, {}
+    if pos.x ~= x then
+      toward[#toward + 1] = pos.x < x and 1 or 3
+      aside[#aside + 1] = pos.x < x and 3 or 1
+    else
+      aside[#aside + 1] = 1
+      aside[#aside + 1] = 3
+    end
+    if pos.z ~= z then
+      toward[#toward + 1] = pos.z < z and 2 or 0
+      aside[#aside + 1] = pos.z < z and 0 or 2
+    else
+      aside[#aside + 1] = 2
+      aside[#aside + 1] = 0
     end
 
-    if not moved then
+    local moved = false
+    if escape then
+      for _, dir in ipairs(escapeToward) do
+        turnTo(dir)
+        if moveForward() then
+          moved = true
+          escape, escapeToward = nil, nil
+          break
+        end
+      end
+    else
+      for _, dir in ipairs(toward) do
+        turnTo(dir)
+        local ok, why = moveForward()
+        if ok then moved = true break end
+        lastWhy = why or lastWhy
+      end
+    end
+
+    if moved then
+      if climbs > 0 and pos.y > (floorY or pos.y) and not turtle.detectDown() then
+        if moveDown() then climbs = climbs - 1 end
+      end
+    else
       -- Climbing over things is how a turtle gets anywhere without breaking
       -- what is in the way, but not when it is heading somewhere with a
       -- ceiling on it. Going up out of the area when something solid sits
       -- on top of it means never getting back down again.
-      if climbs >= 32 or (ceiling and pos.y >= ceiling) then
-        return false, lastWhy
+      -- Not while going round something. Climbing is what puts a turtle on
+      -- the roof of the thing it was trying to walk into; once it has
+      -- committed to following the wall, it follows the wall.
+      local mayClimb = climbs < 32 and not (ceiling and pos.y >= ceiling)
+      local climbed, climbWhy
+      if mayClimb and not escape then
+        climbed, climbWhy = moveUp()
+        if climbed then climbs = climbs + 1 end
       end
-      climbs = climbs + 1
-      local climbed, climbWhy = moveUp()
+
       if not climbed then
-        -- What stopped the journey is whatever was in the way along it, not
-        -- the ceiling that turned out to be over the detour. Blame the
-        -- climb and a turtle standing in a doorway under a roof gets
-        -- reported as solid rock, which writes the column off after three
-        -- goes instead of handing it back as the traffic it was.
-        return false, lastWhy ~= "blocked" and lastWhy or climbWhy
+        -- No way on and no way up, so go round: sideways, or back the way
+        -- it came. A doorway, a trench, a walled yard and the store itself
+        -- all look the same from here - every direction that helps is
+        -- blocked - and every one of them is walkable if the turtle is
+        -- willing to spend a few steps going the wrong way first.
+        local function follow(dirs)
+          for _, dir in ipairs(dirs) do
+            if not seen[square(dir)] and outsideArea(dir) then
+              turnTo(dir)
+              if moveForward() then
+                if not escape then escapeToward = toward end
+                escape = dir
+                detours = detours + 1
+                return true
+              end
+            end
+          end
+          return false
+        end
+
+        local stepped = false
+        if detours < DETOUR_LIMIT then
+          -- Keep going the way it was already going, so it walks the length
+          -- of the wall rather than dithering at the first block of it.
+          stepped = escape and follow({ escape })
+          if not stepped then
+            -- The wall turned a corner, or this is the first step of a new
+            -- detour. Either way, choose again from here.
+            escape = nil
+            stepped = follow(aside)
+          end
+        end
+
+        if not stepped then
+          -- What stopped the journey is whatever was in the way along it,
+          -- not the ceiling that turned out to be over the detour. Blame
+          -- the climb and a turtle standing in a doorway under a roof gets
+          -- reported as solid rock, which writes the column off after three
+          -- goes instead of handing it back as the traffic it was.
+          if mayClimb then
+            return false, lastWhy ~= "blocked" and lastWhy or climbWhy
+          end
+          return false, lastWhy
+        end
       end
-    elseif climbs > 0 and pos.y > (floorY or pos.y) and not turtle.detectDown() then
-      if moveDown() then climbs = climbs - 1 end
     end
   end
   return true
@@ -461,6 +568,42 @@ local function measureFacing()
 
   facing = f
   pos = after
+
+  -- Put it back where it was found. Measuring costs a block of movement,
+  -- and a turtle that keeps the block it moved walks away from its parking
+  -- spot a little further on every single start - which over a rejoin loop
+  -- is how a fleet ends up hundreds of blocks from where it was left.
+  --
+  -- It turns round to come back rather than reversing, so it can look at
+  -- the square before stepping into it. A fleet switched on together is a
+  -- row of turtles all facing the same way: they step the same way at the
+  -- same moment, and each one's way back is filled by its neighbour until
+  -- that neighbour has finished measuring. Looking and waiting lets the row
+  -- unshuffle itself from the far end without anybody bumping anybody.
+  local function patiently(clear, step)
+    for _ = 1, 20 do
+      if not clear() and step() then return true end
+      sleep(0.5)
+    end
+    return false
+  end
+
+  turtle.turnRight()
+  turtle.turnRight()
+  local returned = patiently(turtle.detect, turtle.forward)
+  turtle.turnRight()
+  turtle.turnRight()
+
+  if returned then
+    pos = { x = start.x, y = pos.y, z = start.z }
+    -- Down the same column it climbed, which it knows is clear because it
+    -- came up it a moment ago.
+    while climbed > 0 and patiently(turtle.detectDown, turtle.down) do
+      pos.y = pos.y - 1
+      climbed = climbed - 1
+    end
+  end
+
   return true
 end
 
@@ -969,6 +1112,8 @@ end
 -- Only one turtle fits at the chest, so ask the coordinator for a turn
 -- before setting off. Without this the whole fleet converges on one block
 -- and spends its time waiting for the turtle in front to move.
+local homeSpot
+
 local function claimDepot()
   state = "queuing for the depot"
   for _ = 1, 60 do
@@ -1143,6 +1288,16 @@ local function parkOutOfTheWay()
   -- way back down.
   if pos.x < box.minX or pos.x > box.maxX
      or pos.z < box.minZ or pos.z > box.maxZ then
+    -- No climbing out here: a turtle that goes up outside the area ends on
+    -- the roof of whatever is built over it, having crossed the top with no
+    -- way back down. What it can do is stand on a square of its own. Left
+    -- alone it stands wherever it joined, and a turtle that joined on the
+    -- lane to the store stays on it for the whole job, with every trip to
+    -- the store walking into the back of it.
+    local spot = homeSpot()
+    if spot and not samePlace(pos, spot.x, spot.y, spot.z) then
+      goTo(spot.x, spot.y, spot.z, math.max(spot.y, pos.y))
+    end
     return
   end
   local parkY = box.maxY + 2 + (os.getComputerID() % 4)
@@ -1230,6 +1385,122 @@ local function standDown()
   -- Out at the height the job is worked at, which is a road that exists
   -- whether or not there is sky over the area.
   goTo(spot.x, spot.y, spot.z, box.maxY)
+end
+
+-- Where a turtle stands once there is nothing left to do: out beyond the
+-- docking square, on its own block. Spread two ways - how far out, and how
+-- far along - so that a fleet of any size ends up in a small block of
+-- turtles beside the store rather than a queue of them on one line.
+--
+-- Near the store on purpose. A turtle that stops where it finished stops
+-- wherever the last column happened to be, which on a large job is a long
+-- walk out to go and collect it.
+-- The parking block beside the store is HOME_ROWS deep and HOME_COLUMNS
+-- wide, which is room for twenty turtles before two of them want the same
+-- square - and two that do sort it out by bumping, which costs nothing once
+-- the job is over.
+local HOME_ROWS = 4
+local HOME_COLUMNS = 5
+
+function homeSpot()
+  -- The store when we know it, and the coordinator when we do not. A turtle
+  -- that has never been resupplied has no dock to go by, and that is exactly
+  -- the turtle this is for: one that joined, was told there was no work and
+  -- has stood on its joining square ever since. The two are within a couple
+  -- of blocks of each other anyway.
+  local dock = (depot and depot.dock) or coordPos
+  if not dock then return nil end
+
+  local awayX, awayZ = 0, 0
+  if box then
+    awayX = (dock.x > box.maxX and 1) or (dock.x < box.minX and -1) or 0
+    awayZ = (dock.z > box.maxZ and 1) or (dock.z < box.minZ and -1) or 0
+  end
+  -- A dock directly over or under the store has no side to be on, so pick
+  -- one. Which one does not matter; that they all pick the same one does.
+  if awayX == 0 and awayZ == 0 then awayX = 1 end
+
+  -- Perpendicular to the way out. Both vectors are axis-aligned, so
+  -- swapping the components turns one into the other.
+  local perpX, perpZ = awayZ, awayX
+
+  -- Along the store's face first, out from it second. Turtle ids in a fleet
+  -- are consecutive, so whichever of the two varies fastest is the one that
+  -- gives neighbours different squares - and it wants to be the sideways
+  -- one. Vary the distance instead and consecutive turtles all end up on a
+  -- single line out from the store, which is a queue: they arrive along it
+  -- one behind another, each waiting on the one in front.
+  local id = os.getComputerID()
+  local along = (id % HOME_COLUMNS) - math.floor(HOME_COLUMNS / 2)
+  local out = 2 + (math.floor(id / HOME_COLUMNS) % HOME_ROWS)
+
+  return {
+    x = dock.x + awayX * out + perpX * along,
+    y = dock.y,
+    z = dock.z + awayZ * out + perpZ * along,
+  }
+end
+
+-- The last thing a turtle does. Everything it is carrying goes back in the
+-- store, then it parks beside the store and the program ends.
+--
+-- Ending matters as much as the tidying: a turtle left running goes on
+-- asking for work and shuffling out of the way for turtles that are not
+-- there any more, and it is never in the same place twice when you come
+-- looking for it.
+local function goHome()
+  state = "going home"
+
+  -- Over the top of the area, not across it. Every other journey crosses at
+  -- the area's own height and digs through whatever is in the way, which is
+  -- harmless while the columns are still being worked. This journey happens
+  -- when they are all finished, and crossing then takes the top off every
+  -- column on the way to the store. goTo only ever climbs to a travel
+  -- height, so getting above the work first is enough to keep it there.
+  if box then goToY(box.maxY + 1) end
+
+  -- Under the same token as an ordinary resupply, so a fleet finishing
+  -- together queues for the store instead of arriving on it all at once.
+  local grant = claimDepot()
+  if grant then
+    depotTypes = grant.depotTypes or depotTypes
+    if not depot and grant.depot then
+      depot = normaliseDepot(grant.depot)
+      forgetDistantDepot()
+    end
+    if not depot then depot = probeDepot() end
+
+    if depot then
+      state = "handing everything back"
+      local dir = depot.dir or "forward"
+      if goToDock() then
+        if dir == "forward" then turnTo(depot.facing) end
+        -- Everything, with nothing kept back: there is no next column to
+        -- keep fill for, and the material was the operator's to begin with.
+        if not dumpInventory(dir) then
+          trouble("the store is full - I have finished but still have a load aboard")
+        end
+        saveLocal()
+      else
+        trouble("could not reach the store to hand my load back")
+      end
+    else
+      trouble("finished, but there is no store to hand my load back to")
+    end
+    tell({ type = common.DEPOT_RELEASE })
+  else
+    trouble("the store never came free - finishing with a load aboard")
+  end
+
+  -- Off the docking square whatever happened above, so the turtles still
+  -- queueing behind can get in.
+  local spot = homeSpot()
+  if spot then
+    goTo(spot.x, spot.y, spot.z, math.max(spot.y, pos.y))
+  end
+
+  state = "home"
+  print("job done - parked at " .. common.formatPos(pos))
 end
 
 -- Lava and water are not dug, they are displaced: lay a block into one and
@@ -1489,9 +1760,19 @@ local function goToViaSpine(cx, cz, travelY, ceiling)
   -- Down to the road first, not just up to it. This is the way used when
   -- there is no sky over the area, which means the turtle has very likely
   -- just tried the high road and is now sitting above a ceiling it cannot
-  -- break. Coming down is safe: outside the area there is nothing it is
-  -- allowed to dig, so a descent either finds air or stops.
-  if travelY then goToY(travelY) end
+  -- break. Coming down is safe out here: outside the area there is nothing
+  -- it is allowed to dig, so a descent either finds air or stops.
+  --
+  -- Over the area it is not safe at all, and that was the flaw: in there
+  -- the turtle may dig, so coming down means coming down through the lid of
+  -- whichever finished column it happens to be above. Nobody puts that back
+  -- - the column has been reported done - so the area ends up with a
+  -- scattering of open blocks along the top, one per turtle that came down
+  -- in the wrong place. It travels across at the height it already has and
+  -- comes down at the far end instead.
+  local overTheArea = pos.x >= box.minX and pos.x <= box.maxX
+                  and pos.z >= box.minZ and pos.z <= box.maxZ
+  if travelY and not overTheArea then goToY(travelY) end
   for _, leg in ipairs(legs) do
     local ok, why = goToXZ(leg[1], leg[2], travelY, ceiling)
     if not ok then return false, why end
@@ -1612,28 +1893,39 @@ local function retreatAndSeal(wasHere)
     return not isMaterial(info.name)
   end
 
+  -- One attempt: step out that way, turn round and lay the block back into
+  -- the column. If the block will not go in, come back into the column
+  -- before trying anywhere else. Without that step back the next attempt
+  -- sets off from where this one ended, walks one further and lays its
+  -- block into whatever it has wandered next to - so the column it was
+  -- sent to seal stays open, and gets reported done.
+  local function sealFrom(dir, mayDig)
+    turnTo(dir)
+    if not mayDig and turtle.detect() then return false end
+    if not moveForward() then return false end
+
+    turnTo((facing + 2) % 4)
+    local laid, why = layInto(turtle.place, wasHere)
+    if laid then return true end
+
+    if not moveForward() then
+      return false, why or "could not get back into the column"
+    end
+    return false, why
+  end
+
   local home = towardStore()
   if home and open(home) then
-    turnTo(home)
-    if moveForward() then
-      turnTo((facing + 2) % 4)
-      local laid, why = layInto(turtle.place, wasHere)
-      if laid then return true end
-      if why then return false, why end
-      turnTo((facing + 2) % 4)
-    end
+    local sealed, why = sealFrom(home, true)
+    if sealed then return true end
+    if why then return false, why end
   end
 
   for dir = 0, 3 do
     if dir ~= home and open(dir) then
-      turnTo(dir)
-      if not turtle.detect() and moveForward() then
-        turnTo((facing + 2) % 4)
-        local laid, why = layInto(turtle.place, wasHere)
-        if laid then return true end
-        if why then return false, why end
-        turnTo((facing + 2) % 4)
-      end
+      local sealed, why = sealFrom(dir, false)
+      if sealed then return true end
+      if why then return false, why end
     end
   end
   return false, "nowhere to step to seal the column"
@@ -1777,6 +2069,7 @@ local function workerLoop()
         sleep(3)
       elseif reply.type == common.JOB_DONE then
         print("job finished - nothing left to clear")
+        goHome()
         return
       elseif reply.type == common.NO_CELL and reply.findDepot then
         -- No work goes out until the store has been found, so go and find

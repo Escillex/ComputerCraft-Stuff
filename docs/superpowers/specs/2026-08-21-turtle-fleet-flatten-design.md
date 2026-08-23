@@ -606,3 +606,90 @@ store; depot runs keep material and dump only spoil.
 Existing blocks are replaced rather than worked around: the turtle has to
 pass down through the column regardless, so there is nothing to be saved by
 leaving them.
+
+## Getting about: what the walk could not do
+
+Four faults found in one session, all reported from live play, all in how a
+turtle gets from where it is to where it is going.
+
+**Measuring the facing walked the fleet away.** A turtle works out which
+way it points by moving one block and comparing GPS fixes, and it kept the
+block. Every start displaced it, so a rejoin loop retrying all night walked
+it off the map; a fleet was found hundreds of blocks from where it was
+left. It now turns round and comes back, looking at the square before
+stepping into it and waiting for it to clear - a row of turtles switched on
+together all step the same way at once, and each one's way back is filled
+by its neighbour until that neighbour has finished measuring.
+
+Measured: six starts, six blocks of drift without the step back; with the
+step back but no waiting, three of four in a row still wandered.
+
+**The walk could not go round anything.** `goToXZ` only ever tried the two
+directions that closed the distance, then climbed. That is enough for a
+wall in open ground and nothing else. A store behind a doorway, a trench, a
+walled yard: every direction that helps is blocked, the climb lands the
+turtle on the roof of the place it was trying to enter, and the journey
+fails on ground it could have walked round.
+
+It now follows walls. When there is no way on and no way up it steps aside
+- backwards, if that is what is open - and keeps going that way until the
+direction that was blocked opens again. Two details are load-bearing and
+both were found the hard way:
+
+- Only the originally blocked direction counts as resuming. Stepping aside
+  changes which way the target lies, so accepting any direction that points
+  at the target means walking straight back onto the square just left. The
+  turtle then rocks between two blocks until the journey gives up.
+- No climbing while following a wall. Climbing is what put it on the roof.
+
+Detours are confined to ground outside the marked area. Filling only works
+because turtles keep to the road and never cross a finished column; one
+that wanders over a finished column stands on a block nobody comes back to
+lay.
+
+**Coming down over the area took the lids off.** `goToViaSpine` dropped to
+the road height before crossing, on the reasoning that a descent outside
+the area is harmless. It is - but it ran wherever the turtle happened to
+be, including over the area, where the turtle *is* allowed to dig. So it
+came down through the top block of whichever finished column it was above.
+Nobody puts that back; the column has been reported done. A four-turtle
+fill left eighteen holes along the top, none of them reported.
+
+This was in the doc as a latent flaw. It is not latent: any change to
+scheduling exposes it.
+
+**Idle turtles stood in the lane.** A turtle told there was no work parked
+where it happened to be, because both `parkOutOfTheWay` and `standDown`
+return at once for anything outside the area. One that joined on the lane
+to the store stayed on it for the whole job, and every trip to the store
+walked into the back of it - 99 of 121 collisions in one scenario were a
+single pair. Idle turtles now take a square of their own beside the store.
+
+The spread is a block, not a line: how far along varies fastest, because
+turtle ids in a fleet are consecutive and the axis that varies fastest is
+the one that gives neighbours different squares. Varying the distance
+instead lines them up one behind another, which is a queue.
+
+Measured on five turtles and nine columns: 121 collisions and 208s, down to
+21 and 108s.
+
+## Finishing
+
+`JOB_DONE` used to return, leaving the turtle wherever the last column was,
+holding a load of spoil, still running. All three cost a walk out to the far
+end of the job.
+
+A turtle now claims the depot token - the same mutex resupply uses, so a
+fleet finishing together queues rather than arriving at once - hands back
+everything with nothing kept, and parks on its own square beside the store.
+Then the program ends. If there is no store, or it cannot be reached, it
+says so on the coordinator, parks where it can and still ends.
+
+## Still open
+
+Multi-turtle fill is sensitive to timing and to where the turtles start.
+Two scenarios were passing on luck: moving the crew one block, with no code
+change at all, lost 21 blocks in one and reproduced 99 collisions in the
+other. The four faults above account for what was measurable; the ordering
+itself has not been made robust, and a fleet on a cramped side-docked fill
+is still the worst case.

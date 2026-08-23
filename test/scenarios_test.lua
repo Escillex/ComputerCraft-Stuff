@@ -3202,6 +3202,219 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n=== the store is through a doorway, not over the wall ===")
+--------------------------------------------------------------------------
+do
+  -- A store inside something with a roof on it. Climbing is how a turtle
+  -- gets over whatever is in its way, and here climbing is exactly wrong:
+  -- it ends up on the roof of the place it was trying to get into, with no
+  -- way down. The way in is a door in the side, and reaching it means going
+  -- along the wall - away from the store - before coming back.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 102, minY = 63, maxY = 64, minZ = 200, maxZ = 202 }
+  local coordPos, chest = buildWorld(sim, box)
+
+  local MATERIAL = "minecraft:cobblestone"
+  for _ = 1, 20 do chest.slots[#chest.slots + 1] = { name = MATERIAL, count = 64 } end
+
+  -- A wall between the area and the store with one door in it, and a lip
+  -- along the top so it cannot simply be climbed over. Going over things is
+  -- how a turtle gets past them; when it cannot, the only way through is to
+  -- walk along the wall - away from the store - and come back through the
+  -- door.
+  for z = 197, 205 do
+    for y = box.minY, box.maxY do
+      sim.setBlock(box.maxX + 1, y, z, "minecraft:obsidian")
+    end
+    for x = box.maxX + 1, box.maxX + 3 do
+      sim.setBlock(x, box.maxY + 1, z, "minecraft:obsidian")
+    end
+  end
+  local door = { x = box.maxX + 1, y = box.maxY, z = 197 }
+  sim.setBlock(door.x, door.y, door.z, nil)
+  sim.setBlock(door.x, door.y + 1, door.z, nil)
+  sim.setBlock(door.x + 1, door.y + 1, door.z, nil)
+  sim.setBlock(door.x + 2, door.y + 1, door.z, nil)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local w = sim.addMachine({ id = 600, name = "doorway", isTurtle = true,
+    pos = { x = box.minX, y = box.maxY, z = box.minZ }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+  sim.setBlock(box.minX, box.maxY, box.minZ, nil)
+  sim.boot(w, "flatten", {})
+  table.insert(coord.console, "mode fill")
+  table.insert(coord.console, "material " .. MATERIAL)
+  table.insert(coord.console, "start")
+  sim.run(20000, function() return not w.alive end)
+
+  local reached = false
+  for _, l in ipairs(coord.log) do
+    if l:find("resupply store found", 1, true) then reached = true end
+  end
+  check(reached, "it found the store on the other side of the wall")
+
+  local air = 0
+  for x = box.minX, box.maxX do
+    for y = box.minY, box.maxY do
+      for z = box.minZ, box.maxZ do
+        if sim.getBlock(x, y, z) == nil then air = air + 1 end
+      end
+    end
+  end
+  check(air == 0, ("and filled the area from it (%d empty)"):format(air))
+  check(sim.getBlock(door.x, door.y, door.z) == nil,
+    "and used the door rather than making one")
+  check(#sim.violations() == 0, "nothing protected was dug")
+end
+
+--------------------------------------------------------------------------
+print("\n=== finishing the job: everything back in the store, then stop ===")
+--------------------------------------------------------------------------
+do
+  -- A turtle that stops where it finished stops wherever the last column
+  -- happened to be, still holding a load of spoil, still running and still
+  -- shuffling out of the way of turtles that have gone. All three are
+  -- things you have to walk out to the far end of the job to sort out.
+  local sim = freshSim()
+  -- Long, so that the far end of the job is a walk from the store: the
+  -- point of coming home is not having to go out there and find them.
+  local box = { minX = 88, maxX = 105, minY = 61, maxY = 64, minZ = 200, maxZ = 205 }
+  local coordPos, chest = buildWorld(sim, box)
+  chest.size = 200
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  markCorners(sim, box)
+
+  local crew = {}
+  for i = 1, 4 do
+    local w = sim.addMachine({ id = 500 + i, name = "h" .. (500 + i), isTurtle = true,
+      pos = { x = box.maxX + 1, y = box.maxY, z = box.minZ + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 16 } }, fuel = 0 })
+    crew[i] = w
+    sim.boot(w, "flatten", {})
+  end
+  table.insert(coord.console, "start")
+
+  sim.run(40000, function()
+    for _, w in ipairs(crew) do if w.alive then return false end end
+    return true
+  end)
+
+  local running, holding, far, squares = 0, 0, 0, {}
+  local store = { x = coordPos.x + 1, y = coordPos.y, z = coordPos.z }
+  for _, w in ipairs(crew) do
+    if w.alive then running = running + 1 end
+    for slot = 1, 16 do
+      if w.slots[slot] and w.slots[slot].count > 0 then holding = holding + 1 end
+    end
+    local d = math.max(math.abs(w.pos.x - store.x), math.abs(w.pos.z - store.z))
+    if d > 8 then far = far + 1 end
+    local k = w.pos.x .. "," .. w.pos.y .. "," .. w.pos.z
+    squares[k] = (squares[k] or 0) + 1
+  end
+
+  check(running == 0, ("every turtle stopped (%d still running)"):format(running))
+  check(holding == 0, ("and handed everything back (%d slot(s) still full)"):format(holding))
+  check(far == 0, ("and parked by the store (%d ended more than 8 blocks off)"):format(far))
+
+  local shared = 0
+  for _, n in pairs(squares) do if n > 1 then shared = shared + n - 1 end end
+  check(shared == 0, ("each on its own square (%d overlapping)"):format(shared))
+
+  check(cleared(sim, box) == 0,
+    ("the area was still cleared (%d blocks left)"):format(cleared(sim, box)))
+  for _, w in ipairs(crew) do
+    print(("        %s stopped at %d,%d,%d"):format(w.name, w.pos.x, w.pos.y, w.pos.z))
+  end
+end
+
+--------------------------------------------------------------------------
+print("\n=== starting up leaves the turtle where it was found ===")
+--------------------------------------------------------------------------
+do
+  -- Working out which way it points costs a block of movement, and that
+  -- block has to be given back. Without that every start walks the turtle
+  -- one further along, and a rejoin loop that retries all night walks it
+  -- clean off the map.
+  local sim = freshSim()
+  local box = { minX = 100, maxX = 103, minY = 62, maxY = 64, minZ = 200, maxZ = 203 }
+  local coordPos = buildWorld(sim, box)
+
+  local coord = sim.addMachine({ id = 1, name = "coord", pos = coordPos, console = {},
+    adjacentChest = { list = function() return {} end } })
+  sim.boot(coord, "coordinator", {})
+  sim.run(5)
+  -- No corners marked, so the turtle gets its bearings, is told there is no
+  -- area and stops - which is exactly the short start a rejoin loop repeats.
+
+  local at = { x = box.maxX + 6, y = box.maxY, z = box.maxZ + 6 }
+  local w = sim.addMachine({ id = 201, name = "drifter", isTurtle = true,
+    pos = { x = at.x, y = at.y, z = at.z }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 64 } }, fuel = 0 })
+
+  local moved = 0
+  for _ = 1, 6 do
+    sim.boot(w, "flatten", {})
+    sim.run(sim.now() + 30)
+    if w.pos.x ~= at.x or w.pos.y ~= at.y or w.pos.z ~= at.z then
+      moved = moved + 1
+    end
+  end
+
+  check(moved == 0,
+    ("six starts left it where it began (drifted on %d of them, now at %d,%d,%d)")
+      :format(moved, w.pos.x, w.pos.y, w.pos.z))
+
+  -- Boxed in on the sides it has to climb, and it still has to come back
+  -- down rather than sitting on the roof of whatever it climbed.
+  local up = { x = box.maxX + 9, y = box.maxY, z = box.maxZ + 9 }
+  for _, d in ipairs({ { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } }) do
+    sim.setBlock(up.x + d[1], up.y + d[2], up.z + d[3], "minecraft:obsidian")
+  end
+  local c = sim.addMachine({ id = 202, name = "climber", isTurtle = true,
+    pos = { x = up.x, y = up.y, z = up.z }, facing = 1,
+    slots = { [1] = { name = "minecraft:coal", count = 64 } }, fuel = 0 })
+  sim.boot(c, "flatten", {})
+  sim.run(sim.now() + 30)
+
+  check(c.pos.y == up.y,
+    ("a turtle that had to climb came back down (y %d, started %d)")
+      :format(c.pos.y, up.y))
+  check(c.pos.x == up.x and c.pos.z == up.z,
+    ("and came back to its own square (%d,%d)"):format(c.pos.x, c.pos.z))
+
+  -- Shoulder to shoulder along a wall, all facing it. None of them can step
+  -- forward, so every one turns the same way and steps into its
+  -- neighbour's square - which is the arrangement a fleet is left in when
+  -- it is switched on beside the area it is about to work.
+  local row, rowX, rowZ0 = {}, box.maxX + 15, box.maxZ + 12
+  for i = 1, 4 do
+    sim.setBlock(rowX - 1, box.maxY, rowZ0 + i - 1, "minecraft:obsidian")
+    row[i] = sim.addMachine({ id = 210 + i, name = "row" .. i, isTurtle = true,
+      pos = { x = rowX, y = box.maxY, z = rowZ0 + i - 1 }, facing = 3,
+      slots = { [1] = { name = "minecraft:coal", count = 64 } }, fuel = 0 })
+    sim.boot(row[i], "flatten", {})
+  end
+  sim.run(sim.now() + 60)
+  local strays = 0
+  for i = 1, 4 do
+    if row[i].pos.x ~= rowX or row[i].pos.z ~= rowZ0 + i - 1 then
+      strays = strays + 1
+    end
+  end
+  check(strays == 0,
+    ("a row started together all stayed put (%d of 4 wandered)"):format(strays))
+end
+
+--------------------------------------------------------------------------
 if #failures > 0 then
   print(("\n%d CHECK(S) FAILED"):format(#failures))
   for _, f in ipairs(failures) do print("  - " .. f) end
